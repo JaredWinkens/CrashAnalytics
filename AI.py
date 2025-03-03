@@ -1,14 +1,21 @@
+#!/usr/bin/env python
+import sys
 import joblib
 import numpy as np
 import pickle
 import geopandas as gpd
 from sklearn.preprocessing import StandardScaler
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 def load_model(model_path):
     """Load the Random Forest model from a pickle file."""
     try:
         model = joblib.load(model_path)
-        print("Model loaded successfully.")
+        logger.debug("Model loaded successfully.")
         return model
     except Exception as e:
         raise RuntimeError(f"Error loading model: {e}")
@@ -21,7 +28,7 @@ def load_preprocessing(preproc_path):
         scaler = preprocessing_data['scaler']
         y_mean = preprocessing_data['y_mean']
         y_std = preprocessing_data['y_std']
-        print("Preprocessing info loaded successfully.")
+        logger.debug("Preprocessing info loaded successfully.")
         return scaler, y_mean, y_std
     except Exception as e:
         raise RuntimeError(f"Error loading preprocessing info: {e}")
@@ -62,54 +69,80 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
     """
     try:
         gdf = gpd.read_file(input_gpkg_path)
+        logger.debug(f"Original GeoDataFrame loaded with {len(gdf)} records.")
     except Exception as e:
         raise RuntimeError(f"Error reading geopackage file: {e}")
     
-    # Clean data: remove rows with missing values and duplicates
-    gdf = gdf.dropna().drop_duplicates()
-    
-    # Define required columns (order matters since index 7 is AADT)
+    # Preserve an original identifier for tracing
+    if 'id' not in gdf.columns:
+        gdf = gdf.reset_index(drop=True)
+        gdf['orig_id'] = gdf.index.astype(str)
+    else:
+        gdf['orig_id'] = gdf['id']
+
+    # Define required columns (order matters: index 7 is AADT)
     required_columns = [
         'DEMOGIDX_5', 'PEOPCOLORPCT', 'UNEMPPCT', 'pct_residential', 
         'pct_industrial', 'pct_retail', 'pct_commercial', 'AADT',
         'Commute_TripMiles_TripStart_avg', 'Commute_TripMiles_TripEnd_avg'
     ]
     
-    missing_cols = [col for col in required_columns if col not in gdf.columns]
-    if missing_cols:
-        raise RuntimeError(f"The following required columns are missing in the geopackage: {missing_cols}")
+    # Log rows with missing data in required columns before filling
+    missing_info = gdf[gdf[required_columns].isna().any(axis=1)]
+    if not missing_info.empty:
+        logger.debug("Rows with missing required data before filling:")
+        logger.debug(missing_info[['orig_id'] + required_columns])
+    
+    # Instead of dropping, fill missing values in the required columns with 0
+    fill_defaults = {col: 0 for col in required_columns}
+    gdf[required_columns] = gdf[required_columns].fillna(fill_defaults)
+    
+    logger.debug(f"GeoDataFrame after filling missing values has {len(gdf)} records.")
     
     predictions = []
     for idx, row in gdf.iterrows():
         try:
-            # Extract the feature values in the expected order
             feature_values = row[required_columns].values
             pred = predict_single(feature_values, scaler, rf_model, y_mean, y_std)
             predictions.append(pred)
         except Exception as e:
-            print(f"Error processing row {idx}: {e}")
+            logger.error(f"Error processing row {idx}: {e}")
             predictions.append(None)
     
-    # Add predictions as a new column to the GeoDataFrame
     gdf['Prediction'] = predictions
+    logger.debug("Predictions added. Sample predictions:")
+    logger.debug(gdf[['orig_id', 'Prediction']].head())
     
     try:
-        # Save the updated GeoDataFrame to a new geopackage file
         gdf.to_file(output_gpkg_path, driver="GPKG")
-        print(f"Predictions saved to '{output_gpkg_path}'.")
+        logger.debug(f"Predictions saved to '{output_gpkg_path}'.")
     except Exception as e:
         raise RuntimeError(f"Error saving predictions to geopackage: {e}")
 
 def main():
-    # File paths relative to the main directory
-    model_path = './AI/RandomForestIsoModel.pkl'
-    preproc_path = './AI/preprocessing_info.pkl'
-    input_gpkg_path = './AI/Large_DataSet2.25.gpkg'
-    output_gpkg_path = './AI/Large_DataSet2.25_with_predictions.gpkg'
+    # Default file paths (if no arguments are provided)
+    default_model_path = './AI/RandomForestIsoModel.pkl'
+    default_preproc_path = './AI/preprocessing_info.pkl'
+    default_input_gpkg = './AI/Large_DataSet2.25.gpkg'
+    default_output_gpkg = './AI/Large_DataSet2.25_with_predictions.gpkg'
+    
+    # If command-line arguments are provided, override the defaults.
+    if len(sys.argv) > 1:
+        input_gpkg_path = sys.argv[1]
+        if len(sys.argv) > 2:
+            output_gpkg_path = sys.argv[2]
+        else:
+            output_gpkg_path = input_gpkg_path.replace(".gpkg", "_with_predictions.gpkg")
+    else:
+        input_gpkg_path = default_input_gpkg
+        output_gpkg_path = default_output_gpkg
+
+    logger.debug(f"Using input geopackage: {input_gpkg_path}")
+    logger.debug(f"Output geopackage will be: {output_gpkg_path}")
     
     # Load model and preprocessing data
-    rf_model = load_model(model_path)
-    scaler, y_mean, y_std = load_preprocessing(preproc_path)
+    rf_model = load_model(default_model_path)
+    scaler, y_mean, y_std = load_preprocessing(default_preproc_path)
     
     # Run predictions from the geopackage
     predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mean, y_std)

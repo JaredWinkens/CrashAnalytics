@@ -12,6 +12,7 @@ from shapely.geometry import mapping  # Added import for geometry mapping
 import geopandas as gpd  # Import GeoPandas for GeoPackage reading
 import math
 import json
+import subprocess
 
 # ----------------------------
 # 1. Setup Logging
@@ -23,6 +24,28 @@ logger = logging.getLogger(__name__)
 # 2. Data Loading and Preprocessing
 # ----------------------------
 
+
+def copy_county_gpkg(county, source_gpkg='./AI/Large_DataSet2.25_with_predictions.gpkg', dest_folder='./AI/'):
+    try:
+        gdf = gpd.read_file(source_gpkg)
+        # Standardize CNTY_NAME by removing the trailing " County"
+        gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
+        county_gdf = gdf[gdf['CNTY_NAME'] == county]
+        if county_gdf.empty:
+            logger.error(f"No data found for county: {county}")
+            raise PreventUpdate
+        # Add an 'id' column for later matching
+        county_gdf = county_gdf.copy()
+        county_gdf['id'] = county_gdf.index.astype(str)
+        dest_file = os.path.join(dest_folder, f"{county}_editable.gpkg")
+        county_gdf.to_file(dest_file, driver='GPKG')
+        logger.debug(f"Created editable GPkg for {county} at {dest_file}")
+        return dest_file
+    except Exception as e:
+        logger.error(f"Error copying GPkg for county {county}: {e}")
+        raise PreventUpdate
+
+    
 def standardize_county_name(name):
     """
     Standardize county names by removing 'County' suffix and ensuring proper casing.
@@ -659,7 +682,88 @@ app.layout = html.Div([
 
     # Download Components
     dcc.Download(id='download_data'),
-    dcc.Download(id='download_data_tab3')   # For Census Data tab
+    dcc.Download(id='download_data_tab3'),   # For Census Data tab
+    
+    # (Place these near your other dcc.Store definitions in your app.layout)
+    dcc.Store(id='editable_gpkg_path'),
+    dcc.Store(id='selected_census_tract'),
+    dcc.Store(id='predictions_refresh', data=0),  # New store for refresh trigger
+
+    
+    html.Div(
+    html.Button('Edit Selected Census Tract', id='open_edit_modal', n_clicks=0),
+    style={'display': 'none'}
+),
+    
+    html.Div(
+    dcc.Dropdown(id='county_selector_tab4', options=[], value=[], multi=True),
+    style={'display': 'none'}
+),
+
+# Modal for editing county data:
+html.Div(
+    id='county_edit_modal',
+    children=[
+        html.H3("Edit County Data"),
+        html.Div([
+            html.Label("DEMOGIDX_5"),
+            dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("PEOPCOLORPCT"),
+            dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("UNEMPPCT"),
+            dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("pct_residential"),
+            dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("pct_industrial"),
+            dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("pct_retail"),
+            dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("pct_commercial"),
+            dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("AADT"),
+            dcc.Input(id="input_AADT", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("Commute_TripMiles_TripStart_avg"),
+            dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Label("Commute_TripMiles_TripEnd_avg"),
+            dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01)
+        ]),
+        html.Div([
+            html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0, style={'marginRight': '10px'}),
+            html.Button("Reset Predictions", id="reset_predictions", n_clicks=0),
+        ], style={'marginTop': '15px'}),
+        html.Button("Close", id="close_modal", n_clicks=0, style={'marginTop': '15px'})
+    ],
+    style={
+        'display': 'none',  # Hidden by default
+        'position': 'fixed',
+        'top': '50%',
+        'left': '50%',
+        'transform': 'translate(-50%, -50%)',
+        'padding': '20px',
+        'backgroundColor': 'white',
+        'border': '2px solid black',
+        'zIndex': 1000
+    }
+)
+
 ])
 
 # ----------------------------
@@ -844,33 +948,75 @@ def render_content(tab):
             ),
         ])
 
-    elif tab == 'tab-4':  # NEW TAB: Predictions
+    elif tab == 'tab-4':  # Predictions Tab
         return html.Div([
-            # Left-side controls (county selector and refresh button)
+            # Left-side controls (including the editing UI)
             html.Div([
-                html.Label('Select County:'),  # New county selector
+                html.Label('Select County:'),  
                 dcc.Dropdown(
                     id='county_selector_tab4',
-                    options=[],  # This will be updated via a callback below.
+                    options=[],  # to be updated via callback
                     multi=True,
                     placeholder='Select county by CNTY_NAME'
                 ),
                 html.Br(),
                 html.Label('Prediction Data Controls'),
-                html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0)
+                html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0),
+                html.Hr(),
+                html.H3("Edit Census Tract Data"),
+                html.Div([
+                    html.Label("DEMOGIDX_5"),
+                    dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("PEOPCOLORPCT"),
+                    dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("UNEMPPCT"),
+                    dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("pct_residential"),
+                    dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("pct_industrial"),
+                    dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("pct_retail"),
+                    dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("pct_commercial"),
+                    dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("AADT"),
+                    dcc.Input(id="input_AADT", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("Commute_TripMiles_TripStart_avg"),
+                    dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Label("Commute_TripMiles_TripEnd_avg"),
+                    dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01)
+                ]),
+                html.Div([
+                    html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0, style={'marginRight': '10px'}),
+                    html.Button("Reset Predictions", id="reset_predictions", n_clicks=0)
+                ], style={'marginTop': '15px'}),
             ], style={'width': '25%', 'float': 'left', 'padding': '20px', 'margin-top': '20px'}),
-            html.Div(id='warning_message_tab4', style={'color': 'red', 'margin-left': '25%'}),
             dcc.Graph(
                 id='predictions_map',
-                figure={
+                figure={  # your existing figure definition
                     'data': [],
                     'layout': {
                         'mapbox': {
                             'style': "open-street-map",
-                            'center': {
-                                'lat': county_coordinates[available_counties[0]]['lat'],
-                                'lon': county_coordinates[available_counties[0]]['lon']
-                            },
+                            'center': {'lat': 40.7128, 'lon': -74.0060},
                             'zoom': 10
                         },
                         'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
@@ -880,7 +1026,6 @@ def render_content(tab):
                 config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
             )
         ])
-
 
 
 @app.callback(
@@ -934,7 +1079,7 @@ def toggle_vru_options_tab3(main_value):
         State('data_type_selector_vru_tab1', 'value')
     ]
 )
-def update_map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
+def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
                     start_date, end_date, time_range, days_of_week,
                     gender, weather, light, road_surface, main_data_type, vru_data_type):
     try:
@@ -1563,71 +1708,108 @@ def update_color_legend(n_clicks, counties_selected, selected_attribute):
 
 
 
+# Global variable to store mapping from polygon id to county name.
+county_mapping = {}
+
 @app.callback(
     Output('predictions_map', 'figure'),
     [Input('refresh_predictions_tab4', 'n_clicks'),
-     Input('county_selector_tab4', 'value')]
+     Input('county_selector_tab4', 'value'),
+     Input('predictions_refresh', 'data')],  # refresh trigger store
+    State('editable_gpkg_path', 'data')
 )
-def update_predictions_map(n_clicks, selected_counties):
+def update_predictions_map(n_clicks, selected_counties, refresh_trigger, editable_gpkg_path):
     try:
-        # Read the GeoPackage produced by your AI script
-        gpkg_file = './AI/Large_DataSet2.25_with_predictions.gpkg'
+        ctx = dash.callback_context
+        # Check if the refresh button was clicked and run AI.py
+        if ctx.triggered:
+            triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+            if triggered_id == 'refresh_predictions_tab4':
+                try:
+                    if editable_gpkg_path:
+                        # Run AI.py with the editable GPkg
+                        subprocess.run(["python", "AI.py", editable_gpkg_path], check=True)
+                    else:
+                        subprocess.run(["python", "AI.py"], check=True)
+                    logger.debug("AI.py executed successfully.")
+                except Exception as e:
+                    logger.error(f"Error running AI.py: {e}")
+
+        # Determine which predictions file to load.
+        default_file = './AI/Large_DataSet2.25_with_predictions.gpkg'
+        if editable_gpkg_path and os.path.exists(editable_gpkg_path):
+            # Derive a predictions file name from the editable file.
+            base, ext = os.path.splitext(editable_gpkg_path)
+            editable_pred_file = base + "_with_predictions" + ext
+            if os.path.exists(editable_pred_file):
+                gpkg_file = editable_pred_file
+                logger.debug(f"Loading predictions from editable file: {gpkg_file}")
+            else:
+                logger.warning("Editable predictions file not found; loading default predictions file.")
+                gpkg_file = default_file
+        else:
+            gpkg_file = default_file
+            logger.debug("No editable GPkg provided; loading default predictions file.")
+
+        # Now load the predictions file
         gdf = gpd.read_file(gpkg_file)
         if gdf.empty:
+            logger.error("Predictions file is empty. Falling back to a default blank map.")
             fig = px.scatter_mapbox(
                 pd.DataFrame({'Latitude': [40.7128], 'Longitude': [-74.0060]}),
-                lat='Latitude', lon='Longitude', zoom=10,
-                mapbox_style="open-street-map"
+                lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
             )
             fig.update_traces(marker=dict(opacity=0))
             return fig
 
-        # Filter by county selection if provided (using CNTY_NAME)
+        # Standardize county names (remove " County")
+        gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
+
+        # Filter based on selected counties (if any)
         if selected_counties:
             gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
         
-        # Ensure each polygon has an ID
+        # Ensure each polygon has an ID.
         gdf['id'] = gdf.index.astype(str)
         
-        # Convert GeoDataFrame to GeoJSON dictionary
+        global county_mapping
+        county_mapping = {str(idx): row['CNTY_NAME'] for idx, row in gdf.iterrows()}
+        
+        # Convert GeoDataFrame to GeoJSON.
         geojson_str = gdf.to_json()
         geojson_dict = json.loads(geojson_str)
         for feature in geojson_dict["features"]:
             feature["properties"]["id"] = feature.get("id", None)
         
-        # Calculate the center using the centroids of the polygons
         center_lat = gdf.geometry.centroid.y.mean()
         center_lon = gdf.geometry.centroid.x.mean()
         
-        # Exclude the geometry column from hover data to avoid serialization issues
-        hover_cols = [col for col in gdf.columns if col != "geometry"]
-        
-        # Create the choropleth map using the polygons
         fig = px.choropleth_mapbox(
             gdf,
             geojson=geojson_dict,
             locations='id',
-            color='Prediction',  # Ensure this field exists in your GeoPackage
+            color='Prediction',  # Make sure this field exists
             featureidkey="properties.id",
-            hover_data=hover_cols,
+            hover_data=['CNTY_NAME', 'Prediction'],
             center={'lat': center_lat, 'lon': center_lon},
             mapbox_style="open-street-map",
             zoom=10,
             opacity=0.5
         )
+        
+        fig.update_layout(clickmode='event+select', dragmode='select')
         return fig
 
     except Exception as e:
         logger.error(f"Error updating predictions map: {e}")
         fig = px.scatter_mapbox(
             pd.DataFrame({'Latitude': [40.7128], 'Longitude': [-74.0060]}),
-            lat='Latitude', lon='Longitude', zoom=10,
-            mapbox_style="open-street-map"
+            lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
         )
         fig.update_traces(marker=dict(opacity=0))
         return fig
 
-
+    
 @app.callback(
     Output('county_selector_tab4', 'options'),
     Input('refresh_predictions_tab4', 'n_clicks')
@@ -1636,12 +1818,204 @@ def update_county_options(n_clicks):
     try:
         gpkg_file = './AI/Large_DataSet2.25_with_predictions.gpkg'
         gdf = gpd.read_file(gpkg_file)
+        # Log the original column values for debugging
+        logger.debug("Original CNTY_NAME values: " + str(gdf['CNTY_NAME'].unique()))
+        # Remove the " County" suffix and standardize
+        gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
         unique_counties = sorted(gdf['CNTY_NAME'].dropna().unique().tolist())
+        logger.debug("Unique counties after formatting: " + str(unique_counties))
         options = [{'label': county, 'value': county} for county in unique_counties]
         return options
     except Exception as e:
         logger.error(f"Error updating county selector options: {e}")
         return []
+
+@app.callback(
+    Output('predictions_refresh', 'data'),
+    Input('apply_updated_data', 'n_clicks'),
+    State('predictions_refresh', 'data')
+)
+def update_predictions_refresh(apply_clicks, current):
+    # When Apply is clicked, increment the refresh value.
+    if apply_clicks:
+        return (current or 0) + 1
+    else:
+        raise PreventUpdate
+
+
+
+@app.callback(
+    Output('selected_census_tract', 'data'),
+    Input('predictions_map', 'clickData')
+)
+def store_selected_tract(clickData):
+    if clickData and 'points' in clickData:
+        tract_id = clickData['points'][0].get('location')
+        return tract_id
+    raise PreventUpdate
+
+@app.callback(
+    Output('county_edit_modal', 'style'),
+    [Input('open_edit_modal', 'n_clicks'),
+     Input('close_modal', 'n_clicks'),
+     Input('apply_updated_data', 'n_clicks')],
+    State('county_edit_modal', 'style')
+)
+def toggle_modal(open_clicks, close_clicks, apply_clicks, current_style):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    if triggered_id == 'open_edit_modal':
+        # Show the modal with styling consistent with your project.
+        return {
+            'display': 'block',
+            'position': 'fixed',
+            'top': '50%',
+            'left': '50%',
+            'transform': 'translate(-50%, -50%)',
+            'padding': '20px',
+            'backgroundColor': 'white',
+            'border': '2px solid black',
+            'zIndex': 1000
+        }
+    else:
+        # Hide the modal on Close or after applying changes.
+        return {'display': 'none'}
+
+@app.callback(
+    [Output('input_DEMOGIDX_5', 'value'),
+     Output('input_PEOPCOLORPCT', 'value'),
+     Output('input_UNEMPPCT', 'value'),
+     Output('input_pct_residential', 'value'),
+     Output('input_pct_industrial', 'value'),
+     Output('input_pct_retail', 'value'),
+     Output('input_pct_commercial', 'value'),
+     Output('input_AADT', 'value'),
+     Output('input_Commute_TripMiles_TripStart_avg', 'value'),
+     Output('input_Commute_TripMiles_TripEnd_avg', 'value')],
+    Input('selected_census_tract', 'data'),
+    State('editable_gpkg_path', 'data')
+)
+def populate_modal(tract_id, gpkg_path):
+    if not tract_id or not gpkg_path:
+        raise PreventUpdate
+    try:
+        gdf = gpd.read_file(gpkg_path)
+        row = gdf[gdf['id'] == tract_id]
+        if row.empty:
+            raise PreventUpdate
+        row = row.iloc[0]
+        return (
+            row.get('DEMOGIDX_5', 0),
+            row.get('PEOPCOLORPCT', 0),
+            row.get('UNEMPPCT', 0),
+            row.get('pct_residential', 0),
+            row.get('pct_industrial', 0),
+            row.get('pct_retail', 0),
+            row.get('pct_commercial', 0),
+            row.get('AADT', 0),
+            row.get('Commute_TripMiles_TripStart_avg', 0),
+            row.get('Commute_TripMiles_TripEnd_avg', 0)
+        )
+    except Exception as e:
+        logger.error(f"Error populating modal: {e}")
+        raise PreventUpdate
+
+
+@app.callback(
+    Output('predictions_refresh', 'data', allow_duplicate=True),
+    Input('reset_predictions', 'n_clicks'),
+    State('editable_gpkg_path', 'data'),
+    State('predictions_refresh', 'data'),
+    prevent_initial_call=True
+)
+def reset_predictions(n_clicks, editable_gpkg_path, current_refresh):
+    if n_clicks:
+        if editable_gpkg_path and os.path.exists(editable_gpkg_path):
+            base, ext = os.path.splitext(editable_gpkg_path)
+            predictions_file = base + "_with_predictions" + ext
+            if os.path.exists(predictions_file):
+                try:
+                    os.remove(predictions_file)
+                    logger.info(f"Deleted predictions file: {predictions_file}")
+                except Exception as e:
+                    logger.error(f"Error deleting predictions file {predictions_file}: {e}")
+            else:
+                logger.info("No editable predictions file to delete.")
+        else:
+            logger.info("No editable GPkg provided; nothing to reset.")
+        # Increment the refresh value to trigger a refresh
+        return (current_refresh or 0) + 1
+    raise PreventUpdate
+
+
+
+@app.callback(
+    Output('editable_gpkg_path', 'data'),
+    [Input('county_selector_tab4', 'value'),
+     Input('apply_updated_data', 'n_clicks')],
+    [State('selected_census_tract', 'data'),
+     State('editable_gpkg_path', 'data'),
+     State('input_DEMOGIDX_5', 'value'),
+     State('input_PEOPCOLORPCT', 'value'),
+     State('input_UNEMPPCT', 'value'),
+     State('input_pct_residential', 'value'),
+     State('input_pct_industrial', 'value'),
+     State('input_pct_retail', 'value'),
+     State('input_pct_commercial', 'value'),
+     State('input_AADT', 'value'),
+     State('input_Commute_TripMiles_TripStart_avg', 'value'),
+     State('input_Commute_TripMiles_TripEnd_avg', 'value')]
+)
+def update_editable_gpkg_and_apply(county_selector_value, apply_n_clicks,
+                                   tract_id, gpkg_path,
+                                   demogidx, peopcolorpct, unemppct,
+                                   pct_residential, pct_industrial, pct_retail, pct_commercial,
+                                   aadt, commute_start, commute_end):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    if trigger_id == 'county_selector_tab4':
+        # When a new county is selected, create a new editable GPkg.
+        if county_selector_value and len(county_selector_value) == 1:
+            county = county_selector_value[0]
+            editable_file = copy_county_gpkg(county)
+            return editable_file
+        else:
+            raise PreventUpdate
+
+    elif trigger_id == 'apply_updated_data':
+        # When the Apply Updated Data button is clicked, update the GPkg.
+        if apply_n_clicks and tract_id and gpkg_path:
+            try:
+                gdf = gpd.read_file(gpkg_path)
+                idx = gdf[gdf['id'] == tract_id].index
+                if idx.empty:
+                    raise PreventUpdate
+                gdf.loc[idx, 'DEMOGIDX_5'] = demogidx
+                gdf.loc[idx, 'PEOPCOLORPCT'] = peopcolorpct
+                gdf.loc[idx, 'UNEMPPCT'] = unemppct
+                gdf.loc[idx, 'pct_residential'] = pct_residential
+                gdf.loc[idx, 'pct_industrial'] = pct_industrial
+                gdf.loc[idx, 'pct_retail'] = pct_retail
+                gdf.loc[idx, 'pct_commercial'] = pct_commercial
+                gdf.loc[idx, 'AADT'] = aadt
+                gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = commute_start
+                gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg'] = commute_end
+                gdf.to_file(gpkg_path, driver="GPKG")
+                subprocess.run(["python", "AI.py", gpkg_path], check=True)
+                return gpkg_path
+            except Exception as e:
+                logger.error(f"Error updating GPkg: {e}")
+                raise PreventUpdate
+        else:
+            raise PreventUpdate
+    else:
+        raise PreventUpdate
+
 
 
 # ----------------------------

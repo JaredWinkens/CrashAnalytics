@@ -950,151 +950,180 @@ def render_content(tab):
 
     elif tab == 'tab-4':  # Predictions Tab
         return html.Div([
-            # Left-side controls (including the editing UI)
+        # Left-side controls (including the editing UI)
+        html.Div([
             html.Div([
                 html.Label('Select AI Model:', style={'fontSize': '12px'}),
-                dcc.Dropdown(
-                    id='model_selector_tab4',
-                    options=[
-                        {'label': 'ForestISO', 'value': 'AI.py'},
-                        # Future models can be added here:
-                        # {'label': 'ModelX', 'value': 'ModelX.py'},
-                    ],
-                    value='AI.py',
-                    clearable=False,
-                    style={'width': '100%', 'fontSize': '12px'}
-                ),
-                html.Br(),
-                html.Label('Select County:', style={'fontSize': '12px'}),
-                dcc.Dropdown(
-                    id='county_selector_tab4',
-                    options=[],  # to be updated via callback
-                    multi=True,
-                    placeholder='Select county by CNTY_NAME',
-                    style={'width': '100%', 'fontSize': '12px'}
-                ),
-                html.Br(),
-                html.Label('Prediction Data Controls', style={'fontSize': '12px'}),
-                html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0, style={'fontSize': '12px'}),
-                html.Hr(),
-                html.H3("Edit Census Tract Data", style={'fontSize': '14px', 'marginBottom': '10px'}),
-                # Each field is contained in a flex container for alignment:
-                html.Div([
-                    html.Label("DEMOGIDX_5", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_DEMOGIDX_5", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_DEMOGIDX_5", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("PEOPCOLORPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_PEOPCOLORPCT", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_PEOPCOLORPCT", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("UNEMPPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_UNEMPPCT", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_UNEMPPCT", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("pct_residential", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_pct_residential", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_pct_residential", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("pct_industrial", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_pct_industrial", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_pct_industrial", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("pct_retail", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_pct_retail", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_pct_retail", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("pct_commercial", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_pct_commercial", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_pct_commercial", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("AADT", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_AADT", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_AADT", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_AADT", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("Commute_TripMiles_TripStart_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                html.Div([
-                    html.Label("Commute_TripMiles_TripEnd_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
-                    dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01,
-                            style={'width': '80px', 'fontSize': '12px'}),
-                    html.Button("+", id="plus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'}),
-                    html.Button("–", id="minus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
-                                style={'marginLeft': '5px', 'fontSize': '12px'})
-                ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                # Add the Apply and Reset buttons at the bottom of the left-side controls.
-                html.Div([
-                    html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0, 
-                                style={'fontSize': '12px', 'marginRight': '5px'}),
-                    html.Button("Reset Predictions", id="reset_predictions", n_clicks=0, 
-                                style={'fontSize': '12px'})
-                ], style={'marginTop': '10px', 'display': 'flex', 'justifyContent': 'center'})
-            ], style={'width': '25%', 'float': 'left', 'padding': '10px', 'marginTop': '20px'}),
-            dcc.Graph(
-                id='predictions_map',
-                figure={
-                    'data': [],
-                    'layout': {
-                        'mapbox': {
-                            'style': "open-street-map",
-                            'center': {'lat': 40.7128, 'lon': -74.0060},
-                            'zoom': 10
-                        },
-                        'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
+                html.Span(
+                    "i",
+                    title="Choose a tract to edit and apply the new values, then reset to change another one. Update one tract at a time.",
+                    style={
+                        'display': 'inline-block',
+                        'backgroundColor': '#ccc',
+                        'border': '1px solid #999',
+                        'borderRadius': '50%',
+                        'width': '16px',
+                        'height': '16px',
+                        'textAlign': 'center',
+                        'lineHeight': '16px',
+                        'cursor': 'help',
+                        'marginLeft': '5px',
+                        'fontSize': '12px'
                     }
-                },
-                style={'height': '80vh', 'width': '70%', 'position': 'fixed', 'top': '160px', 'right': '20px'},
-                config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
-            )
-        ])
-
+                )
+            ], style={'display': 'flex', 'alignItems': 'center'}),
+            dcc.Dropdown(
+                id='model_selector_tab4',
+                options=[
+                    {'label': 'ForestISO', 'value': 'AI.py'},
+                    # Future models can be added here:
+                    # {'label': 'ModelX', 'value': 'ModelX.py'},
+                ],
+                value='AI.py',
+                clearable=False,
+                style={'width': '100%', 'fontSize': '12px'}
+            ),
+            html.Div(
+                id='prediction_bar',
+                style={
+                    'width': '100%',
+                    'padding': '10px',
+                    'backgroundColor': '#eee',
+                    'textAlign': 'center',
+                    'fontWeight': 'bold'
+                }
+            ),
+            dcc.Store(id='original_prediction'),
+            html.Br(),
+            html.Label('Select County:', style={'fontSize': '12px'}),
+            dcc.Dropdown(
+                id='county_selector_tab4',
+                options=[],  # to be updated via callback
+                multi=True,
+                placeholder='Select county by CNTY_NAME',
+                style={'width': '100%', 'fontSize': '12px'}
+            ),
+            html.Br(),
+            html.Label('Prediction Data Controls', style={'fontSize': '12px'}),
+            html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0, style={'fontSize': '12px'}),
+            html.Hr(),
+            html.H3("Edit Census Tract Data", style={'fontSize': '14px', 'marginBottom': '10px'}),
+            # Each field is contained in a flex container for alignment:
+            html.Div([
+                html.Label("DEMOGIDX_5", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_DEMOGIDX_5", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_DEMOGIDX_5", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("PEOPCOLORPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_PEOPCOLORPCT", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_PEOPCOLORPCT", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("UNEMPPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_UNEMPPCT", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_UNEMPPCT", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("pct_residential", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_pct_residential", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_pct_residential", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("pct_industrial", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_pct_industrial", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_pct_industrial", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("pct_retail", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_pct_retail", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_pct_retail", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("pct_commercial", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_pct_commercial", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_pct_commercial", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("AADT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_AADT", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_AADT", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_AADT", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("Commute_TripMiles_TripStart_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            html.Div([
+                html.Label("Commute_TripMiles_TripEnd_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
+                dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01,
+                          style={'width': '80px', 'fontSize': '12px'}),
+                html.Button("+", id="plus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'}),
+                html.Button("–", id="minus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
+                            style={'marginLeft': '5px', 'fontSize': '12px'})
+            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+            # Add the Apply and Reset buttons at the bottom of the left-side controls.
+            html.Div([
+                html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0,
+                            style={'fontSize': '12px', 'marginRight': '5px'}),
+                html.Button("Reset Predictions", id="reset_predictions", n_clicks=0,
+                            style={'fontSize': '12px'})
+            ], style={'marginTop': '10px', 'display': 'flex', 'justifyContent': 'center'})
+        ], style={'width': '25%', 'float': 'left', 'padding': '10px', 'marginTop': '20px'}),
+        dcc.Graph(
+            id='predictions_map',
+            figure={
+                'data': [],
+                'layout': {
+                    'mapbox': {
+                        'style': "open-street-map",
+                        'center': {'lat': 40.7128, 'lon': -74.0060},
+                        'zoom': 10
+                    },
+                    'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
+                }
+            },
+            style={'height': '80vh', 'width': '70%', 'position': 'fixed', 'top': '160px', 'right': '20px'},
+            config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
+        )
+    ])
 
 
 
@@ -2053,18 +2082,6 @@ def update_county_options(n_clicks):
         logger.error(f"Error updating county selector options: {e}")
         return []
 
-@app.callback(
-    Output('predictions_refresh', 'data'),
-    Input('apply_updated_data', 'n_clicks'),
-    State('predictions_refresh', 'data')
-)
-def update_predictions_refresh(apply_clicks, current):
-    # When Apply is clicked, increment the refresh value.
-    if apply_clicks:
-        return (current or 0) + 1
-    else:
-        raise PreventUpdate
-
 
 
 @app.callback(
@@ -2137,8 +2154,10 @@ def reset_predictions(n_clicks, editable_gpkg_path, current_refresh):
 
 @app.callback(
     Output('editable_gpkg_path', 'data'),
+    Output('predictions_refresh', 'data'),
     [Input('county_selector_tab4', 'value'),
-     Input('apply_updated_data', 'n_clicks')],
+     Input('apply_updated_data', 'n_clicks'),
+     Input('reset_predictions', 'n_clicks')],
     [State('selected_census_tract', 'data'),
      State('editable_gpkg_path', 'data'),
      State('input_DEMOGIDX_5', 'value'),
@@ -2150,29 +2169,34 @@ def reset_predictions(n_clicks, editable_gpkg_path, current_refresh):
      State('input_pct_commercial', 'value'),
      State('input_AADT', 'value'),
      State('input_Commute_TripMiles_TripStart_avg', 'value'),
-     State('input_Commute_TripMiles_TripEnd_avg', 'value')]
+     State('input_Commute_TripMiles_TripEnd_avg', 'value'),
+     State('predictions_refresh', 'data')]
 )
-def update_editable_gpkg_and_apply(county_selector_value, apply_n_clicks,
-                                   tract_id, gpkg_path,
-                                   demogidx, peopcolorpct, unemppct,
-                                   pct_residential, pct_industrial, pct_retail, pct_commercial,
-                                   aadt, commute_start, commute_end):
+def update_editable_gpkg_and_predictions(county_selector_value, apply_n_clicks, reset_n_clicks,
+                                          tract_id, gpkg_path,
+                                          demogidx, peopcolorpct, unemppct,
+                                          pct_residential, pct_industrial, pct_retail, pct_commercial,
+                                          aadt, commute_start, commute_end, current_refresh):
     ctx = dash.callback_context
     if not ctx.triggered:
         raise PreventUpdate
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    if trigger_id == 'county_selector_tab4':
-        # When a new county is selected, create a new editable GPkg.
+    triggered_prop = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # --- Branch 1: County Selection ---
+    # When a new county is selected, create a new editable GPkg.
+    if triggered_prop == 'county_selector_tab4':
         if county_selector_value and len(county_selector_value) == 1:
             county = county_selector_value[0]
             editable_file = copy_county_gpkg(county)
-            return editable_file
+            # Do not change the refresh counter here.
+            return editable_file, current_refresh
         else:
             raise PreventUpdate
 
-    elif trigger_id == 'apply_updated_data':
-        # When the Apply Updated Data button is clicked, update the GPkg.
+    # --- Branch 2: Apply Updated Data ---
+    # When "Apply Updated Data" is clicked, update the current GPkg with new values and bump refresh.
+    elif triggered_prop == 'apply_updated_data':
         if apply_n_clicks and tract_id and gpkg_path:
             try:
                 gdf = gpd.read_file(gpkg_path)
@@ -2190,16 +2214,98 @@ def update_editable_gpkg_and_apply(county_selector_value, apply_n_clicks,
                 gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = commute_start
                 gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg'] = commute_end
                 gdf.to_file(gpkg_path, driver="GPKG")
+                # Run the predictions model (which may update/create a predictions file)
                 subprocess.run(["python", "AI.py", gpkg_path], check=True)
-                return gpkg_path
+                new_refresh = (current_refresh or 0) + 1
+                return gpkg_path, new_refresh
             except Exception as e:
                 logger.error(f"Error updating GPkg: {e}")
                 raise PreventUpdate
         else:
             raise PreventUpdate
+
+    # --- Branch 3: Reset (Refresh) Predictions ---
+    # When "Reset Predictions" (refresh) is clicked, delete the current editable GPkg and its predictions,
+    # then create a new editable GPkg with original values.
+    elif triggered_prop == 'reset_predictions':
+        if reset_n_clicks:
+            # Delete the editable GPkg file if it exists.
+            if gpkg_path and os.path.exists(gpkg_path):
+                try:
+                    os.remove(gpkg_path)
+                    logger.info(f"Deleted editable GPkg: {gpkg_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting editable GPkg {gpkg_path}: {e}")
+            # Delete the associated predictions file if it exists.
+            if gpkg_path:
+                base, ext = os.path.splitext(gpkg_path)
+                predictions_file = base + "_with_predictions" + ext
+                if os.path.exists(predictions_file):
+                    try:
+                        os.remove(predictions_file)
+                        logger.info(f"Deleted predictions file: {predictions_file}")
+                    except Exception as e:
+                        logger.error(f"Error deleting predictions file {predictions_file}: {e}")
+            # Recreate a new editable GPkg from the original data using the currently selected county.
+            if county_selector_value and len(county_selector_value) == 1:
+                county = county_selector_value[0]
+                new_editable_file = copy_county_gpkg(county)
+            else:
+                new_editable_file = None
+            new_refresh = (current_refresh or 0) + 1
+            return new_editable_file, new_refresh
+        else:
+            raise PreventUpdate
     else:
         raise PreventUpdate
 
+@app.callback(
+    Output('original_prediction', 'data'),
+    Input('selected_census_tract', 'data'),
+    State('editable_gpkg_path', 'data')
+)
+def store_original_prediction(selected_tract, gpkg_path):
+    if not selected_tract or not gpkg_path:
+        raise PreventUpdate
+    try:
+        gdf = gpd.read_file(gpkg_path)
+        row = gdf[gdf['id'] == selected_tract]
+        if row.empty:
+            return None
+        original_value = row.iloc[0].get('Prediction', 'N/A')
+        return original_value
+    except Exception as e:
+        logger.error(f"Error reading original prediction: {e}")
+        return None
+
+@app.callback(
+    Output('prediction_bar', 'children'),
+    [Input('original_prediction', 'data'),
+     Input('predictions_refresh', 'data')],
+    State('editable_gpkg_path', 'data'),
+    State('selected_census_tract', 'data')
+)
+def update_prediction_bar(original_prediction, refresh_val, gpkg_path, selected_tract):
+    if not selected_tract or not gpkg_path:
+        return "No census tract selected."
+    try:
+        # Check if the predictions file exists (the AI model writes updates here)
+        base, ext = os.path.splitext(gpkg_path)
+        predictions_file = base + "_with_predictions" + ext
+        if os.path.exists(predictions_file):
+            file_to_read = predictions_file
+        else:
+            file_to_read = gpkg_path
+
+        gdf = gpd.read_file(file_to_read)
+        row = gdf[gdf['id'] == selected_tract]
+        if row.empty:
+            return "Selected tract not found in GPkg."
+        current_prediction = row.iloc[0].get('Prediction', 'N/A')
+        return f"Original Prediction: {original_prediction} | Current Prediction: {current_prediction}"
+    except Exception as e:
+        logger.error(f"Error updating prediction bar: {e}")
+        return f"Error reading prediction: {e}"
 
 
 # ----------------------------

@@ -74,11 +74,10 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
         raise RuntimeError(f"Error reading geopackage file: {e}")
     
     # Preserve an original identifier for tracing
+    # Preserve the original 'id' column.
     if 'id' not in gdf.columns:
         gdf = gdf.reset_index(drop=True)
-        gdf['orig_id'] = gdf.index.astype(str)
-    else:
-        gdf['orig_id'] = gdf['id']
+        gdf['id'] = gdf.index.astype(str)
 
     # Define required columns (order matters: index 7 is AADT)
     required_columns = [
@@ -111,7 +110,7 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
     
     gdf['Prediction'] = predictions
     logger.debug("Predictions added. Sample predictions:")
-    logger.debug(gdf[['orig_id', 'Prediction']].head())
+    logger.debug(gdf[['id', 'Prediction']].head())
     
     try:
         gdf.to_file(output_gpkg_path, driver="GPKG")

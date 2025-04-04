@@ -14,6 +14,7 @@ import math
 import json
 import subprocess
 
+
 # ----------------------------
 # 1. Setup Logging
 # ----------------------------
@@ -434,7 +435,7 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
             value=['Albany'],  # default county
             multi=True,
             placeholder='Select one or more counties or All',
-            style={'width': '100%'}
+            style={'width': '100%'}  # let the container control the overall width
         ),
         html.Label('Data Type:', style={'margin-top': '10px'}),
         dcc.RadioItems(
@@ -565,7 +566,8 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
                 ])
             ]
     
-    return html.Div(controls, style={'width': '25%', 'float': 'left', 'padding': '20px', 'margin-top': '20px'})
+    # Remove the inline width, float, and margin settings and use a CSS class instead.
+    return html.Div(controls, className='responsive-controls')
 
 def census_controls():
     controls = [
@@ -661,15 +663,9 @@ app.layout = html.Div([
                 'height': '128px', 'float': 'left', 'margin-right': '40px', 
                 'margin-left': '-20px', 'margin-top': '-8px'
             }),
-            html.H1('Crash Data Analytics', style={
-                'color': 'white', 'textAlign': 'center', 'lineHeight': '90px'
-            }),
-            # Right Image: NY.svg
-            html.Img(src='/assets/NY.svg', style={
-                'height': '128px', 'float': 'right', 'margin-right': '20px', 
-                'margin-left': '40px', 'margin-top': '-150px'
-            }),
-        ], style={
+            html.H1('Crash Data Analytics', className='app-title'),
+            html.Img(src='/assets/NY.svg', className='ny-logo')
+        ],style={
             'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
             'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
         }),
@@ -819,37 +815,52 @@ def render_content(tab):
     global unique_weather, unique_light, unique_road
 
     if tab == 'tab-1':
-        return html.Div([
-            # ... existing code for tab-1 ...
-            common_controls(
-                'tab1',
-                show_buttons=True,
-                available_counties=available_counties,
-                unique_weather=unique_weather,
-                unique_light=unique_light,
-                unique_road=unique_road
-            ),
-            html.Div(id='warning_message_tab1', style={'color': 'red', 'margin-left': '25%'}),
-            dcc.Graph(
-                id='scatter_map',
-                figure={
-                    'data': [],
-                    'layout': {
-                        'mapbox': {
-                            'style': "open-street-map",
-                            'center': {
-                                'lat': county_coordinates[available_counties[0]]['lat'],
-                                'lon': county_coordinates[available_counties[0]]['lon']
+        return html.Div(
+            children=[
+                html.Div(
+                    children=[
+                        html.Div(
+                            common_controls(
+                                'tab1',
+                                show_buttons=True,
+                                available_counties=available_counties,
+                                unique_weather=unique_weather,
+                                unique_light=unique_light,
+                                unique_road=unique_road
+                            ),
+                            className='responsive-controls'
+                        ),
+                        dcc.Graph(
+                            id='scatter_map',
+                            figure={
+                                'data': [],
+                                'layout': {
+                                    'mapbox': {
+                                        'style': "open-street-map",
+                                        'center': {
+                                            'lat': county_coordinates[available_counties[0]]['lat'],
+                                            'lon': county_coordinates[available_counties[0]]['lon']
+                                        },
+                                        'zoom': 10
+                                    },
+                                    'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
+                                }
                             },
-                            'zoom': 10
-                        },
-                        'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
-                    }
-                },
-                style={'height': '80vh', 'width': '70%', 'position': 'fixed', 'top': '160px', 'right': '20px'},
-                config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
-            ),
-        ])
+                            className='responsive-graph',
+                            config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
+                        )
+                    ],
+                    className='desktop-layout'
+                ),
+                html.Div(
+                    id='warning_message_tab1',
+                    style={'color': 'red', 'textAlign': 'center', 'margin': '10px'}
+                )
+            ]
+        )
+
+
+
 
     elif tab == 'tab-2':
         return html.Div([
@@ -2302,7 +2313,24 @@ def update_prediction_bar(original_prediction, refresh_val, gpkg_path, selected_
         if row.empty:
             return "Selected tract not found in GPkg."
         current_prediction = row.iloc[0].get('Prediction', 'N/A')
-        return f"Original Prediction: {original_prediction} | Current Prediction: {current_prediction}"
+        
+        # Convert predictions to floats and round to 2 decimals (if possible)
+        try:
+            original_val = float(original_prediction)
+            original_str = f"{original_val:.2f}"
+        except Exception:
+            original_str = str(original_prediction)
+        try:
+            current_val = float(current_prediction)
+            current_str = f"{current_val:.2f}"
+        except Exception:
+            current_str = str(current_prediction)
+
+        # Force a new line by returning separate html.Div children.
+        return html.Div([
+            html.Div(f"Original Prediction: {original_str}"),
+            html.Div(f"Current Prediction: {current_str}")
+        ])
     except Exception as e:
         logger.error(f"Error updating prediction bar: {e}")
         return f"Error reading prediction: {e}"

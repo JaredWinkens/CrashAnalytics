@@ -38,14 +38,18 @@ def predict_single(input_values, scaler, rf_model, y_mean, y_std):
     Predict a single output using the provided model and preprocessing.
     Expects input_values as an array-like with the required features.
     """
-    # Ensure input is a numpy array with float type
+    # Convert input values to a numpy array of float type.
     input_array = np.array(input_values, dtype=float)
     
-    # Apply log1p transformation for the AADT value (assumed to be at index 7)
-    try:
+    # Replace any NaN with 0 just in case.
+    input_array = np.nan_to_num(input_array, nan=0.0)
+    
+    # For the AADT value (assumed to be at index 7):
+    # If it's 0 or negative, leave it as 0; otherwise, apply the log1p transformation.
+    if input_array[7] <= 0:
+        input_array[7] = 0.0
+    else:
         input_array[7] = np.log1p(input_array[7])
-    except Exception as e:
-        raise ValueError(f"Error applying log1p transformation on AADT value {input_array[7]}: {e}")
     
     # Scale the input data
     input_scaled = scaler.transform(input_array.reshape(1, -1))
@@ -73,8 +77,7 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
     except Exception as e:
         raise RuntimeError(f"Error reading geopackage file: {e}")
     
-    # Preserve an original identifier for tracing
-    # Preserve the original 'id' column.
+    # Ensure an 'id' column exists for tracing.
     if 'id' not in gdf.columns:
         gdf = gdf.reset_index(drop=True)
         gdf['id'] = gdf.index.astype(str)
@@ -86,17 +89,15 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
         'Commute_TripMiles_TripStart_avg', 'Commute_TripMiles_TripEnd_avg'
     ]
     
-    # Log rows with missing data in required columns before filling
-    missing_info = gdf[gdf[required_columns].isna().any(axis=1)]
-    if not missing_info.empty:
-        logger.debug("Rows with missing required data before filling:")
-        logger.debug(missing_info[['orig_id'] + required_columns])
+    # Ensure each required column exists; if not, create it with zeros.
+    for col in required_columns:
+        if col not in gdf.columns:
+            gdf[col] = 0
+            logger.debug(f"Column '{col}' missing. Created and filled with 0.")
     
-    # Instead of dropping, fill missing values in the required columns with 0
+    # Instead of dropping, fill missing values in the required columns with 0.
     fill_defaults = {col: 0 for col in required_columns}
     gdf[required_columns] = gdf[required_columns].fillna(fill_defaults)
-    
-    logger.debug(f"GeoDataFrame after filling missing values has {len(gdf)} records.")
     
     predictions = []
     for idx, row in gdf.iterrows():
@@ -106,7 +107,8 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
             predictions.append(pred)
         except Exception as e:
             logger.error(f"Error processing row {idx}: {e}")
-            predictions.append(None)
+            # If an error occurs, assign a prediction of 0 rather than dropping the county.
+            predictions.append(0)
     
     gdf['Prediction'] = predictions
     logger.debug("Predictions added. Sample predictions:")
@@ -139,11 +141,11 @@ def main():
     logger.debug(f"Using input geopackage: {input_gpkg_path}")
     logger.debug(f"Output geopackage will be: {output_gpkg_path}")
     
-    # Load model and preprocessing data
+    # Load model and preprocessing data.
     rf_model = load_model(default_model_path)
     scaler, y_mean, y_std = load_preprocessing(default_preproc_path)
     
-    # Run predictions from the geopackage
+    # Run predictions from the geopackage.
     predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mean, y_std)
 
 if __name__ == '__main__':

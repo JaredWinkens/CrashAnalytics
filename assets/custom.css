@@ -41,13 +41,11 @@
   @media (max-width: 768px) {
     .desktop-layout {
       display: block;
-      /* Add top padding equal to (or slightly more than) the fixed header height */
       padding-top: 160px;  
     }
     .responsive-controls {
       width: 100% !important;
       padding: 10px !important;
-      /* Remove any extra top margin that could separate the slider from the rest of the controls */
       margin-top: 0 !important;
       box-sizing: border-box !important;
     }
@@ -60,8 +58,6 @@
   }
   
   
-  
-  /* Default styling for the title on desktop */
   /* good luck whoever messes with this next */
 .app-title {
     color: white;

@@ -4,6 +4,7 @@ import joblib
 import numpy as np
 import pickle
 import geopandas as gpd
+import pandas as pd  # used for proper numeric conversion
 from sklearn.preprocessing import StandardScaler
 import logging
 
@@ -41,9 +42,11 @@ def predict_single(input_values, scaler, rf_model, y_mean, y_std):
     # Convert input values to a numpy array of float type.
     input_array = np.array(input_values, dtype=float)
     
-    # Replace any NaN with 0 just in case.
-    input_array = np.nan_to_num(input_array, nan=0.0)
-    
+    # Instead of replacing NaN with 0, detect if any feature is missing.
+    if np.isnan(input_array).any():
+        logger.debug("Missing values detected in input. Returning NaN prediction.")
+        return np.nan
+
     # For the AADT value (assumed to be at index 7):
     # If it's 0 or negative, leave it as 0; otherwise, apply the log1p transformation.
     if input_array[7] <= 0:
@@ -51,13 +54,13 @@ def predict_single(input_values, scaler, rf_model, y_mean, y_std):
     else:
         input_array[7] = np.log1p(input_array[7])
     
-    # Scale the input data
+    # Scale the input data.
     input_scaled = scaler.transform(input_array.reshape(1, -1))
     
-    # Make a prediction using the Random Forest model
+    # Make a prediction using the Random Forest model.
     prediction = rf_model.predict(input_scaled)
     
-    # Unstandardize the prediction
+    # Unstandardize the prediction.
     prediction = prediction * y_std + y_mean
     return prediction[0]
 
@@ -89,15 +92,14 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
         'Commute_TripMiles_TripStart_avg', 'Commute_TripMiles_TripEnd_avg'
     ]
     
-    # Ensure each required column exists; if not, create it with zeros.
+    # For any missing columns, create them and fill with NaN.
     for col in required_columns:
         if col not in gdf.columns:
-            gdf[col] = 0
-            logger.debug(f"Column '{col}' missing. Created and filled with 0.")
-    
-    # Instead of dropping, fill missing values in the required columns with 0.
-    fill_defaults = {col: 0 for col in required_columns}
-    gdf[required_columns] = gdf[required_columns].fillna(fill_defaults)
+            gdf[col] = np.nan
+            logger.debug(f"Column '{col}' missing. Created and filled with NaN.")
+
+    # Do not force missing values to 0; leave them as NaN.
+    gdf[required_columns] = gdf[required_columns].apply(pd.to_numeric, errors='coerce')
     
     predictions = []
     for idx, row in gdf.iterrows():
@@ -107,8 +109,8 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
             predictions.append(pred)
         except Exception as e:
             logger.error(f"Error processing row {idx}: {e}")
-            # If an error occurs, assign a prediction of 0 rather than dropping the county.
-            predictions.append(0)
+            # If processing fails for some reason, assign NaN.
+            predictions.append(np.nan)
     
     gdf['Prediction'] = predictions
     logger.debug("Predictions added. Sample predictions:")

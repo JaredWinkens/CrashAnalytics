@@ -640,7 +640,7 @@ def census_controls():
             html.Button('Apply Filter', id='apply_filter_tab3', n_clicks=0, style={'margin-top': '30px'})
         ], style={'margin-bottom': '20px', 'margin-top': '20px'})
     ]
-    return html.Div(controls, style={'width': '25%', 'float': 'left', 'padding': '20px', 'margin-top': '20px'})
+    return html.Div(controls)
 
 # ----------------------------
 # 6. Define the Main Layout
@@ -945,205 +945,218 @@ def render_content(tab):
 
     elif tab == 'tab-3':
         return html.Div([
-            census_controls(),
-            html.Div(id='warning_message_tab3', style={'color': 'red', 'margin-left': '25%'}),
-            dcc.Graph(
-                id='scatter_map_tab3',
-                figure={
-                    'data': [],
-                    'layout': {
-                        'mapbox': {
-                            'style': "open-street-map",
-                            'center': {
-                                'lat': county_coordinates[available_counties[0]]['lat'],
-                                'lon': county_coordinates[available_counties[0]]['lon']
+            html.Div([
+                census_controls(),
+                html.Div(id='warning_message_tab3', style={'color': 'red'})
+            ], className='responsive-controls'),
+            html.Div(
+                dcc.Graph(
+                    id='scatter_map_tab3',
+                    figure={
+                        'data': [],
+                        'layout': {
+                            'mapbox': {
+                                'style': "open-street-map",
+                                'center': {
+                                    'lat': county_coordinates[available_counties[0]]['lat'],
+                                    'lon': county_coordinates[available_counties[0]]['lon']
+                                },
+                                'zoom': 10
                             },
-                            'zoom': 10
-                        },
-                        'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
+                            'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
+                        }
+                    },
+                    config={
+                        'modeBarButtonsToRemove': ['lasso2d'], 
+                        'displayModeBar': True, 
+                        'scrollZoom': True
                     }
-                },
-                style={'height': '80vh', 'width': '70%', 'position': 'fixed', 'top': '160px', 'right': '20px'},
-                config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
-            ),
-        ])
+                ),
+                className='responsive-graph'
+            )
+        ], className='desktop-layout')
 
     elif tab == 'tab-4':  # Predictions Tab
         return html.Div([
-        # Left-side controls (including the editing UI)
-        html.Div([
+            # Left-side: Controls (Model, Prediction Bar, County Selector, and Editing UI)
             html.Div([
-                html.Label('Select AI Model:', style={'fontSize': '12px'}),
-                html.Span(
-                    "i",
-                    title="Choose a tract to edit and apply the new values, then reset to change another one. Update one tract at a time.",
+                html.Div([
+                    html.Label('Select AI Model:', style={'fontSize': '12px'}),
+                    html.Span(
+                        "i",
+                        title="Choose a tract to edit and apply the new values, then reset to change another one. Update one tract at a time.",
+                        style={
+                            'display': 'inline-block',
+                            'backgroundColor': '#ccc',
+                            'border': '1px solid #999',
+                            'borderRadius': '50%',
+                            'width': '16px',
+                            'height': '16px',
+                            'textAlign': 'center',
+                            'lineHeight': '16px',
+                            'cursor': 'help',
+                            'marginLeft': '5px',
+                            'fontSize': '12px'
+                        }
+                    )
+                ], style={'display': 'flex', 'alignItems': 'center'}),
+                dcc.Dropdown(
+                    id='model_selector_tab4',
+                    options=[
+                        {'label': 'ForestISO', 'value': 'AI.py'},
+                        # Future models can be added here:
+                        # {'label': 'ModelX', 'value': 'ModelX.py'},
+                    ],
+                    value='AI.py',
+                    clearable=False,
+                    style={'width': '100%', 'fontSize': '12px'}
+                ),
+                html.Div(
+                    id='prediction_bar',
                     style={
-                        'display': 'inline-block',
-                        'backgroundColor': '#ccc',
-                        'border': '1px solid #999',
-                        'borderRadius': '50%',
-                        'width': '16px',
-                        'height': '16px',
+                        'width': '100%',
+                        'padding': '10px',
+                        'backgroundColor': '#eee',
                         'textAlign': 'center',
-                        'lineHeight': '16px',
-                        'cursor': 'help',
-                        'marginLeft': '5px',
-                        'fontSize': '12px'
+                        'fontWeight': 'bold'
                     }
-                )
-            ], style={'display': 'flex', 'alignItems': 'center'}),
-            dcc.Dropdown(
-                id='model_selector_tab4',
-                options=[
-                    {'label': 'ForestISO', 'value': 'AI.py'},
-                    # Future models can be added here:
-                    # {'label': 'ModelX', 'value': 'ModelX.py'},
-                ],
-                value='AI.py',
-                clearable=False,
-                style={'width': '100%', 'fontSize': '12px'}
-            ),
+                ),
+                dcc.Store(id='original_prediction'),
+                html.Br(),
+                html.Label('Select County:', style={'fontSize': '12px'}),
+                dcc.Dropdown(
+                    id='county_selector_tab4',
+                    options=[],  # to be updated via callback
+                    multi=True,
+                    placeholder='Select county by CNTY_NAME',
+                    style={'width': '100%', 'fontSize': '12px'}
+                ),
+                html.Br(),
+                html.Label('Prediction Data Controls', style={'fontSize': '12px'}),
+                html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0, style={'fontSize': '12px'}),
+                html.Hr(),
+                html.H3("Edit Census Tract Data", style={'fontSize': '14px', 'marginBottom': '10px'}),
+                # Editing Controls – one row per field; add additional rows as needed.
+                html.Div([
+                    html.Div([
+                        html.Label("DEMOGIDX_5", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_DEMOGIDX_5", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_DEMOGIDX_5", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("PEOPCOLORPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_PEOPCOLORPCT", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_PEOPCOLORPCT", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("UNEMPPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_UNEMPPCT", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_UNEMPPCT", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("pct_residential", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_pct_residential", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_pct_residential", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("pct_industrial", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_pct_industrial", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_pct_industrial", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("pct_retail", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_pct_retail", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_pct_retail", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("pct_commercial", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_pct_commercial", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_pct_commercial", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("AADT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_AADT", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_AADT", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_AADT", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("Commute_TripMiles_TripStart_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
+                    html.Div([
+                        html.Label("Commute_TripMiles_TripEnd_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01,
+                                style={'width': '80px', 'fontSize': '12px'}),
+                        html.Button("+", id="plus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
+                        html.Button("–", id="minus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
+                                    style={'marginLeft': '5px', 'fontSize': '12px'})
+                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'})
+                ], style={'display': 'flex', 'flexDirection': 'column', 'gap': '5px'}),
+                html.Div([
+                    html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0,
+                                style={'fontSize': '12px', 'marginRight': '5px'}),
+                    html.Button("Reset Predictions", id="reset_predictions", n_clicks=0,
+                                style={'fontSize': '12px'})
+                ], style={'marginTop': '10px', 'display': 'flex', 'justifyContent': 'center'})
+            ], className='responsive-controls'),
+            # Right-side: Predictions Map
             html.Div(
-                id='prediction_bar',
-                style={
-                    'width': '100%',
-                    'padding': '10px',
-                    'backgroundColor': '#eee',
-                    'textAlign': 'center',
-                    'fontWeight': 'bold'
-                }
-            ),
-            dcc.Store(id='original_prediction'),
-            html.Br(),
-            html.Label('Select County:', style={'fontSize': '12px'}),
-            dcc.Dropdown(
-                id='county_selector_tab4',
-                options=[],  # to be updated via callback
-                multi=True,
-                placeholder='Select county by CNTY_NAME',
-                style={'width': '100%', 'fontSize': '12px'}
-            ),
-            html.Br(),
-            html.Label('Prediction Data Controls', style={'fontSize': '12px'}),
-            html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0, style={'fontSize': '12px'}),
-            html.Hr(),
-            html.H3("Edit Census Tract Data", style={'fontSize': '14px', 'marginBottom': '10px'}),
-            # Each field is contained in a flex container for alignment:
-            html.Div([
-                html.Label("DEMOGIDX_5", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_DEMOGIDX_5", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_DEMOGIDX_5", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("PEOPCOLORPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_PEOPCOLORPCT", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_PEOPCOLORPCT", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("UNEMPPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_UNEMPPCT", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_UNEMPPCT", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("pct_residential", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_pct_residential", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_pct_residential", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("pct_industrial", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_pct_industrial", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_pct_industrial", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("pct_retail", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_pct_retail", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_pct_retail", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("pct_commercial", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_pct_commercial", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_pct_commercial", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("AADT", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_AADT", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_AADT", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_AADT", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("Commute_TripMiles_TripStart_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            html.Div([
-                html.Label("Commute_TripMiles_TripEnd_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
-                dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01,
-                          style={'width': '80px', 'fontSize': '12px'}),
-                html.Button("+", id="plus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'}),
-                html.Button("–", id="minus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
-                            style={'marginLeft': '5px', 'fontSize': '12px'})
-            ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-            # Add the Apply and Reset buttons at the bottom of the left-side controls.
-            html.Div([
-                html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0,
-                            style={'fontSize': '12px', 'marginRight': '5px'}),
-                html.Button("Reset Predictions", id="reset_predictions", n_clicks=0,
-                            style={'fontSize': '12px'})
-            ], style={'marginTop': '10px', 'display': 'flex', 'justifyContent': 'center'})
-        ], style={'width': '25%', 'float': 'left', 'padding': '10px', 'marginTop': '20px'}),
-        dcc.Graph(
-            id='predictions_map',
-            figure={
-                'data': [],
-                'layout': {
-                    'mapbox': {
-                        'style': "open-street-map",
-                        'center': {'lat': 40.7128, 'lon': -74.0060},
-                        'zoom': 10
+                dcc.Graph(
+                    id='predictions_map',
+                    figure={
+                        'data': [],
+                        'layout': {
+                            'mapbox': {
+                                'style': "open-street-map",
+                                'center': {'lat': 40.7128, 'lon': -74.0060},
+                                'zoom': 10
+                            },
+                            'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
+                        }
                     },
-                    'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
-                }
-            },
-            style={'height': '80vh', 'width': '70%', 'position': 'fixed', 'top': '160px', 'right': '20px'},
-            config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
-        )
-    ])
+                    config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
+                ),
+                className='responsive-graph'
+            )
+        ], className='desktop-layout')
+
 
 
 
@@ -1837,97 +1850,149 @@ county_mapping = {}
         Input('refresh_predictions_tab4', 'n_clicks'),
         Input('county_selector_tab4', 'value'),
         Input('predictions_refresh', 'data'),
-        Input('model_selector_tab4', 'value')  # New input for model selection
+        Input('model_selector_tab4', 'value')
     ],
     State('editable_gpkg_path', 'data')
 )
 def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_file, editable_gpkg_path):
-    try:
-        ctx = dash.callback_context
-        # Check if the refresh button was clicked and run the selected model file
-        if ctx.triggered:
-            triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-            if triggered_id == 'refresh_predictions_tab4':
-                try:
-                    if editable_gpkg_path:
-                        subprocess.run(["python", model_file, editable_gpkg_path], check=True)
-                    else:
-                        subprocess.run(["python", model_file], check=True)
-                    logger.debug(f"{model_file} executed successfully.")
-                except Exception as e:
-                    logger.error(f"Error running {model_file}: {e}")
+    import os
+    import json
+    import plotly.graph_objects as go
 
-        # Determine which predictions file to load.
+    try:
+        # Determine which geopackage file to load.
         default_file = './AI/Large_DataSet2.25_with_predictions.gpkg'
         if editable_gpkg_path and os.path.exists(editable_gpkg_path):
             base, ext = os.path.splitext(editable_gpkg_path)
             editable_pred_file = base + "_with_predictions" + ext
             if os.path.exists(editable_pred_file):
                 gpkg_file = editable_pred_file
-                logger.debug(f"Loading predictions from editable file: {gpkg_file}")
             else:
-                logger.warning("Editable predictions file not found; loading default predictions file.")
                 gpkg_file = default_file
         else:
             gpkg_file = default_file
-            logger.debug("No editable GPkg provided; loading default predictions file.")
 
+        # Load the predictions GeoDataFrame.
+        import geopandas as gpd
         gdf = gpd.read_file(gpkg_file)
         if gdf.empty:
-            logger.error("Predictions file is empty. Falling back to a default blank map.")
-            fig = px.scatter_mapbox(
-                pd.DataFrame({'Latitude': [40.7128], 'Longitude': [-74.0060]}),
-                lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
-            )
-            fig.update_traces(marker=dict(opacity=0))
-            return fig
+            raise ValueError("Predictions file is empty.")
 
-        # Standardize county names (remove " County")
-        gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
+        # Standardize county names if needed.
+        if 'CNTY_NAME' in gdf.columns:
+            gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
 
-        # Filter based on selected counties (if any)
+        # Filter based on selected counties (if any).
         if selected_counties:
             gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
-        
-        # Ensure each polygon has an ID.
-        gdf['id'] = gdf.index.astype(str)
-        global county_mapping
-        county_mapping = {str(idx): row['CNTY_NAME'] for idx, row in gdf.iterrows()}
-        
-        # Convert GeoDataFrame to GeoJSON.
-        geojson_str = gdf.to_json()
-        geojson_dict = json.loads(geojson_str)
-        for feature in geojson_dict["features"]:
-            feature["properties"]["id"] = feature.get("id", None)
-        
-        center_lat = gdf.geometry.centroid.y.mean()
-        center_lon = gdf.geometry.centroid.x.mean()
-        
-        fig = px.choropleth_mapbox(
-            gdf,
-            geojson=geojson_dict,
-            locations='id',
-            color='Prediction',  # Ensure this field exists
+
+        # Ensure each polygon has an 'id' for mapping.
+        if 'id' not in gdf.columns:
+            gdf = gdf.reset_index(drop=True)
+            gdf['id'] = gdf.index.astype(str)
+
+        # Split the data: valid predictions (non-NA) vs. missing predictions (NA).
+        gdf_valid = gdf[~gdf['Prediction'].isna()]
+        gdf_missing = gdf[gdf['Prediction'].isna()]
+
+        # Convert each subset to GeoJSON.
+        geojson_valid = json.loads(gdf_valid.to_json())
+        geojson_missing = json.loads(gdf_missing.to_json())
+
+        # Create a trace for valid predictions using a colorscale "YlGnBu" (change as desired)
+        trace_valid = go.Choroplethmapbox(
+            geojson=geojson_valid,
+            locations=gdf_valid['id'],
+            z=gdf_valid['Prediction'],
+            colorscale='YlGnBu',
+            marker_opacity=0.6,
+            marker_line_width=1,
+            colorbar=dict(title="Prediction"),
             featureidkey="properties.id",
-            hover_data=['CNTY_NAME', 'Prediction'],
-            center={'lat': center_lat, 'lon': center_lon},
-            mapbox_style="open-street-map",
-            zoom=10,
-            opacity=0.5
+            name="Prediction"
         )
-        
-        fig.update_layout(clickmode='event+select', dragmode='select')
+
+        # Create a trace for missing predictions using a fixed black color.
+        trace_missing = go.Choroplethmapbox(
+            geojson=geojson_missing,
+            locations=gdf_missing['id'],
+            z=[0]*len(gdf_missing),  # dummy values; color is fixed by colorscale below
+            colorscale=[[0, "black"], [1, "black"]],
+            marker_opacity=0.9,
+            marker_line_width=1,
+            showscale=False,
+            featureidkey="properties.id",
+            name="Missing Prediction"
+        )
+
+        # Compute the center of the map.
+        if not gdf.empty:
+            center_lat = gdf.geometry.centroid.y.mean()
+            center_lon = gdf.geometry.centroid.x.mean()
+        else:
+            center_lat, center_lon = 40.7128, -74.0060
+
+        # Create and return the figure.
+        fig = go.Figure(data=[trace_valid, trace_missing])
+        fig.update_layout(
+            mapbox=dict(
+                style="open-street-map",
+                center={'lat': center_lat, 'lon': center_lon},
+                zoom=10
+            ),
+            margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
+            legend=dict(x=0, y=1)
+        )
         return fig
 
     except Exception as e:
-        logger.error(f"Error updating predictions map: {e}")
-        fig = px.scatter_mapbox(
-            pd.DataFrame({'Latitude': [40.7128], 'Longitude': [-74.0060]}),
-            lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
+        # In case of error, return a blank map with an error annotation.
+        fig = go.Figure(
+            data=go.Scattermapbox(
+                lat=[40.7128],
+                lon=[-74.0060],
+                mode='markers',
+                marker=dict(opacity=0)
+            )
         )
-        fig.update_traces(marker=dict(opacity=0))
+        fig.update_layout(
+            mapbox=dict(
+                style="open-street-map",
+                center={'lat': 40.7128, 'lon': -74.0060},
+                zoom=10
+            ),
+            margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
+            annotations=[dict(
+                text="An error occurred while updating predictions map.",
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=20)
+            )]
+        )
         return fig
 
+
+    except Exception as e:
+        # In case of error, return a blank map with an error annotation.
+        fig = go.Figure(
+            data=go.Scattermapbox(
+                lat=[40.7128],
+                lon=[-74.0060],
+                mode='markers',
+                marker=dict(opacity=0)
+            )
+        )
+        fig.update_layout(
+            mapbox=dict(
+                style="open-street-map",
+                center={'lat': 40.7128, 'lon': -74.0060},
+                zoom=10
+            ),
+            margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
+            annotations=[dict(
+                text="An error occurred while updating predictions map.",
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=20)
+            )]
+        )
+        return fig
 
 @app.callback(
     Output('input_DEMOGIDX_5', 'value'),

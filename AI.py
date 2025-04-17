@@ -93,7 +93,7 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
     required_columns = [
         'DEMOGIDX_5', 'PEOPCOLORPCT', 'UNEMPPCT', 'pct_residential', 
         'pct_industrial', 'pct_retail', 'pct_commercial', 'AADT',
-        'Commute_TripMiles_TripStart_avg','Commute_TripMiles_TripEnd_avg'
+            'AvgCommuteMiles(Start)', 'AvgCommuteMiles(End)'
     ]
     
     # For any missing columns, create them and fill with NaN.
@@ -130,7 +130,7 @@ def main():
     # Default file paths (if no arguments are provided)
     default_model_path = './AI/RandomForestIsoModel.pkl'
     default_preproc_path = './AI/preprocessing_info.pkl'
-    default_input_gpkg = './AI/Large_DataSet2.25.gpkg'
+    default_input_gpkg = './AI/Rename_DataSet2.25.gpkg'
     default_output_gpkg = './AI/Large_DataSet2.25_with_predictions.gpkg'
     
     # If command-line arguments are provided, override the defaults.

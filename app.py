@@ -703,43 +703,43 @@ html.Div(
         html.H3("Edit County Data"),
         html.Div([
             html.Label("DEMOGIDX_5"),
-            dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01)
+            dcc.Input(id="input_DEMOGIDX_5", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("PEOPCOLORPCT"),
-            dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01)
+            dcc.Input(id="input_PEOPCOLORPCT", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("UNEMPPCT"),
-            dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01)
+            dcc.Input(id="input_UNEMPPCT", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("pct_residential"),
-            dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01)
+            dcc.Input(id="input_pct_residential", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("pct_industrial"),
-            dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01)
+            dcc.Input(id="input_pct_industrial", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("pct_retail"),
-            dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01)
+            dcc.Input(id="input_pct_retail", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("pct_commercial"),
-            dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01)
+            dcc.Input(id="input_pct_commercial", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("AADT"),
-            dcc.Input(id="input_AADT", type="number", value=0, step=0.01)
+            dcc.Input(id="input_AADT", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("Commute_TripMiles_TripStart_avg"),
-            dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01)
+            dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Label("Commute_TripMiles_TripEnd_avg"),
-            dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01)
+            dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=None, step=0.01)
         ]),
         html.Div([
             html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0, style={'marginRight': '10px'}),
@@ -2025,6 +2025,8 @@ def update_modal_values(selected_tract,
                         cur_demog, cur_peop, cur_unemp, cur_res,
                         cur_ind, cur_retail, cur_commercial,
                         cur_aadt, cur_commute_start, cur_commute_end):
+    def clean(v):
+        return None if pd.isna(v) else round(v, 2)
     ctx = callback_context
     if not ctx.triggered:
         raise PreventUpdate
@@ -2042,16 +2044,16 @@ def update_modal_values(selected_tract,
                 raise PreventUpdate
             row = row.iloc[0]
             return (
-                round(row.get('DEMOGIDX_5', 0), 2),
-                round(row.get('PEOPCOLORPCT', 0), 2),
-                round(row.get('UNEMPPCT', 0), 2),
-                round(row.get('pct_residential', 0), 2),
-                round(row.get('pct_industrial', 0), 2),
-                round(row.get('pct_retail', 0), 2),
-                round(row.get('pct_commercial', 0), 2),
-                round(row.get('AADT', 0), 2),
-                round(row.get('Commute_TripMiles_TripStart_avg', 0), 2),
-                round(row.get('Commute_TripMiles_TripEnd_avg', 0), 2)
+                clean(row.get('DEMOGIDX_5')),
+                clean(row.get('PEOPCOLORPCT')),
+                clean(row.get('UNEMPPCT')),
+                clean(row.get('pct_residential')),
+                clean(row.get('pct_industrial')),
+                clean(row.get('pct_retail')),
+                clean(row.get('pct_commercial')),
+                clean(row.get('AADT')),
+                clean(row.get('AvgCommuteMiles(Start)')),
+                clean(row.get('AvgCommuteMiles(End)')),
             )
         except Exception as e:
             logger.error(f"Error populating modal: {e}")

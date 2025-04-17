@@ -44,7 +44,6 @@ def predict_single(input_values, scaler, rf_model, y_mean, y_std):
     
     # Instead of replacing NaN with 0, detect if any feature is missing.
     if np.isnan(input_array).any():
-        logger.debug("Missing values detected in input. Returning NaN prediction.")
         return np.nan
 
     # For the AADT value (assumed to be at index 7):
@@ -79,6 +78,11 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
         logger.debug(f"Original GeoDataFrame loaded with {len(gdf)} records.")
     except Exception as e:
         raise RuntimeError(f"Error reading geopackage file: {e}")
+        # ——— DEBUG: list every column name ———
+    logger.debug("Columns in GPKG:")
+    for col in gdf.columns:
+        logger.debug("  %r", col)
+
     
     # Ensure an 'id' column exists for tracing.
     if 'id' not in gdf.columns:
@@ -89,7 +93,7 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
     required_columns = [
         'DEMOGIDX_5', 'PEOPCOLORPCT', 'UNEMPPCT', 'pct_residential', 
         'pct_industrial', 'pct_retail', 'pct_commercial', 'AADT',
-        'Commute_TripMiles_TripStart_avg', 'Commute_TripMiles_TripEnd_avg'
+        'Commute_TripMiles_TripStart_avg','Commute_TripMiles_TripEnd_avg'
     ]
     
     # For any missing columns, create them and fill with NaN.

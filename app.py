@@ -1855,10 +1855,6 @@ county_mapping = {}
     State('editable_gpkg_path', 'data')
 )
 def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_file, editable_gpkg_path):
-    import os
-    import json
-    import plotly.graph_objects as go
-
     try:
         # Determine which geopackage file to load.
         default_file = './AI/Large_DataSet2.25_with_predictions.gpkg'
@@ -1873,7 +1869,6 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
             gpkg_file = default_file
 
         # Load the predictions GeoDataFrame.
-        import geopandas as gpd
         gdf = gpd.read_file(gpkg_file)
         if gdf.empty:
             raise ValueError("Predictions file is empty.")
@@ -1944,31 +1939,6 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
             legend=dict(x=0, y=1)
         )
         return fig
-
-    except Exception as e:
-        # In case of error, return a blank map with an error annotation.
-        fig = go.Figure(
-            data=go.Scattermapbox(
-                lat=[40.7128],
-                lon=[-74.0060],
-                mode='markers',
-                marker=dict(opacity=0)
-            )
-        )
-        fig.update_layout(
-            mapbox=dict(
-                style="open-street-map",
-                center={'lat': 40.7128, 'lon': -74.0060},
-                zoom=10
-            ),
-            margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
-            annotations=[dict(
-                text="An error occurred while updating predictions map.",
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=20)
-            )]
-        )
-        return fig
-
 
     except Exception as e:
         # In case of error, return a blank map with an error annotation.
@@ -2521,5 +2491,6 @@ if __name__ == '__main__':
     globals()['county_coordinates'] = county_coordinates
     globals()['census_polygons_by_county'] = census_polygons_by_county
     globals()['data_by_county'] = data_by_county
+    print("Finished loading webapp.")
 
     app.run_server(debug=True)

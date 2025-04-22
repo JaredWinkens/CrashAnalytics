@@ -702,43 +702,43 @@ html.Div(
     children=[
         html.H3("Edit County Data"),
         html.Div([
-            html.Label("DEMOGIDX_5"),
+            html.Label("Demographic Index (5‑yr ACS)"),
             dcc.Input(id="input_DEMOGIDX_5", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("PEOPCOLORPCT"),
+            html.Label("People of Color (%)"),
             dcc.Input(id="input_PEOPCOLORPCT", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("UNEMPPCT"),
+            html.Label("Unemployment Rate (%)"),
             dcc.Input(id="input_UNEMPPCT", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("pct_residential"),
+            html.Label("Residential Land Use (%)"),
             dcc.Input(id="input_pct_residential", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("pct_industrial"),
+            html.Label("Industrial Land Use (%)"),
             dcc.Input(id="input_pct_industrial", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("pct_retail"),
+            html.Label("Retail Land Use (%)"),
             dcc.Input(id="input_pct_retail", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("pct_commercial"),
+            html.Label("Commercial Land Use (%)"),
             dcc.Input(id="input_pct_commercial", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("AADT"),
+            html.Label("Annual Average Daily Traffic"),
             dcc.Input(id="input_AADT", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("Commute_TripMiles_TripStart_avg"),
+            html.Label("Avg Commute Distance (Trip Start, mi)"),
             dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=None, step=0.01)
         ]),
         html.Div([
-            html.Label("Commute_TripMiles_TripEnd_avg"),
+            html.Label("Avg Commute Distance (Trip End, mi)"),
             dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=None, step=0.01)
         ]),
         html.Div([
@@ -1004,8 +1004,6 @@ def render_content(tab):
                     id='model_selector_tab4',
                     options=[
                         {'label': 'ForestISO', 'value': 'AI.py'},
-                        # Future models can be added here:
-                        # {'label': 'ModelX', 'value': 'ModelX.py'},
                     ],
                     value='AI.py',
                     clearable=False,
@@ -1039,7 +1037,7 @@ def render_content(tab):
                 # Editing Controls – one row per field; add additional rows as needed.
                 html.Div([
                     html.Div([
-                        html.Label("DEMOGIDX_5", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Demographic Index", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_DEMOGIDX_5", n_clicks=0,
@@ -1048,7 +1046,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("PEOPCOLORPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("People of Color (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_PEOPCOLORPCT", n_clicks=0,
@@ -1057,7 +1055,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("UNEMPPCT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Unemployment Rate (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_UNEMPPCT", n_clicks=0,
@@ -1066,7 +1064,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("pct_residential", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Residential Land Use (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_pct_residential", n_clicks=0,
@@ -1075,7 +1073,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("pct_industrial", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Industrial Land Use (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_pct_industrial", n_clicks=0,
@@ -1084,7 +1082,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("pct_retail", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Retail Land Use (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_pct_retail", n_clicks=0,
@@ -1093,7 +1091,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("pct_commercial", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Commercial Land Use (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_pct_commercial", n_clicks=0,
@@ -1102,7 +1100,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("AADT", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Annual Average Daily Traffic", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_AADT", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_AADT", n_clicks=0,
@@ -1111,7 +1109,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("Commute_TripMiles_TripStart_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Avg Commute Distance (Trip Start, mi)", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
@@ -1120,7 +1118,7 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
                     html.Div([
-                        html.Label("Commute_TripMiles_TripEnd_avg", style={'fontSize': '12px', 'marginRight': '5px'}),
+                        html.Label("Avg Commute Distance (Trip End, mi)", style={'fontSize': '12px', 'marginRight': '5px'}),
                         dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01,
                                 style={'width': '80px', 'fontSize': '12px'}),
                         html.Button("+", id="plus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,

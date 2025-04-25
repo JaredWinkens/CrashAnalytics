@@ -2432,7 +2432,6 @@ def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_pat
             return str(x)
 
     return html.Div([
-        html.Div(f"Model: {model_file}", style={'fontWeight':'bold'}),
         html.Div(f"Original Prediction: {fmt(original_prediction)}"),
         html.Div(f"Current Prediction:  {fmt(current_val)}"),
     ])

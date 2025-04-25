@@ -14,6 +14,11 @@ import math
 import json
 import subprocess
 
+# where your two models dump their “big” prediction files:
+DEFAULT_PRED_FILES = {
+    'AI.py':  './AI/Large_DataSet2.25_with_predictions.gpkg',
+    'AI2.py': './AI/Rename_DataSet2.25_with_gwr_predictions.gpkg'
+}
 
 # ----------------------------
 # 1. Setup Logging
@@ -684,7 +689,16 @@ app.layout = html.Div([
     dcc.Store(id='editable_gpkg_path'),
     dcc.Store(id='selected_census_tract'),
     dcc.Store(id='predictions_refresh', data=0),  # New store for refresh trigger
-
+    dcc.Dropdown(
+    id='model_selector_tab4',
+    options=[
+        {'label': 'ForestISO', 'value': 'AI.py'},
+        {'label': 'GWR Model',  'value': 'AI2.py'}
+    ],
+    value='AI.py',
+    clearable=False,
+    style={'display': 'none'}    # hidden placeholder
+),
     
     html.Div(
     html.Button('Edit Selected Census Tract', id='open_edit_modal', n_clicks=0),
@@ -1003,7 +1017,8 @@ def render_content(tab):
                 dcc.Dropdown(
                     id='model_selector_tab4',
                     options=[
-                        {'label': 'ForestISO', 'value': 'AI.py'},
+                        {'label': 'ForestISO',     'value': 'AI.py'},
+                        {'label': 'GWR (local)',  'value': 'AI2.py'},
                     ],
                     value='AI.py',
                     clearable=False,
@@ -1854,100 +1869,100 @@ county_mapping = {}
 )
 def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_file, editable_gpkg_path):
     try:
-        # Determine which geopackage file to load.
-        default_file = './AI/Large_DataSet2.25_with_predictions.gpkg'
-        if editable_gpkg_path and os.path.exists(editable_gpkg_path):
+        # pick suffix & default per model
+        if model_file == "AI2.py":
+            suffix = "_with_gwr_predictions"
+            default_file = "./AI/Rename_DataSet2.25_with_gwr_predictions.gpkg"
+            pred_col = "GWR_Prediction"
+        else:
+            suffix = "_with_predictions"
+            default_file = "./AI/Large_DataSet2.25_with_predictions.gpkg"
+            pred_col = "Prediction"
+
+        # figure out which gpkg to load
+        if editable_gpkg_path:
             base, ext = os.path.splitext(editable_gpkg_path)
-            editable_pred_file = base + "_with_predictions" + ext
-            if os.path.exists(editable_pred_file):
-                gpkg_file = editable_pred_file
-            else:
-                gpkg_file = default_file
+            candidate = base + suffix + ext
+            gpkg_file = candidate if os.path.exists(candidate) else default_file
         else:
             gpkg_file = default_file
 
-        # Load the predictions GeoDataFrame.
+        logger.debug(f"Loading predictions from {gpkg_file}")
+
+        # load it
         gdf = gpd.read_file(gpkg_file)
-        if gdf.empty:
-            raise ValueError("Predictions file is empty.")
 
-        # Standardize county names if needed.
+        # unify under 'Prediction'
+        if pred_col not in gdf.columns:
+            raise KeyError(f"Expected column '{pred_col}' not found in {gpkg_file}")
+        gdf['Prediction'] = gdf[pred_col]
+
+        # standardize county name
         if 'CNTY_NAME' in gdf.columns:
-            gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
-
-        # Filter based on selected counties (if any).
+            gdf['CNTY_NAME'] = (
+                gdf['CNTY_NAME']
+                .str.replace(" County", "", regex=False)
+                .str.strip()
+                .str.title()
+            )
+        # filter on dropdown
         if selected_counties:
             gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
 
-        # Ensure each polygon has an 'id' for mapping.
-        if 'id' not in gdf.columns:
-            gdf = gdf.reset_index(drop=True)
-            gdf['id'] = gdf.index.astype(str)
+        # split valid vs missing
+        valid = gdf[~gdf['Prediction'].isna()]
+        missing = gdf[gdf['Prediction'].isna()]
 
-        # Split the data: valid predictions (non-NA) vs. missing predictions (NA).
-        gdf_valid = gdf[~gdf['Prediction'].isna()]
-        gdf_missing = gdf[gdf['Prediction'].isna()]
-
-        # Convert each subset to GeoJSON.
-        geojson_valid = json.loads(gdf_valid.to_json())
-        geojson_missing = json.loads(gdf_missing.to_json())
-
-        # Create a trace for valid predictions using a colorscale "YlGnBu" (change as desired)
-        trace_valid = go.Choroplethmapbox(
-            geojson=geojson_valid,
-            locations=gdf_valid['id'],
-            z=gdf_valid['Prediction'],
-            colorscale='YlGnBu',
-            marker_opacity=0.6,
-            marker_line_width=1,
-            colorbar=dict(title="Prediction"),
-            featureidkey="properties.id",
-            name="Prediction"
-        )
-
-        # Create a trace for missing predictions using a fixed black color.
-        trace_missing = go.Choroplethmapbox(
-            geojson=geojson_missing,
-            locations=gdf_missing['id'],
-            z=[0]*len(gdf_missing),  # dummy values; color is fixed by colorscale below
-            colorscale=[[0, "black"], [1, "black"]],
-            marker_opacity=0.9,
-            marker_line_width=1,
-            showscale=False,
-            featureidkey="properties.id",
-            name="Missing Prediction"
-        )
-
-        # Compute the center of the map.
-        if not gdf.empty:
-            center_lat = gdf.geometry.centroid.y.mean()
-            center_lon = gdf.geometry.centroid.x.mean()
-        else:
-            center_lat, center_lon = 40.7128, -74.0060
-
-        # Create and return the figure.
-        fig = go.Figure(data=[trace_valid, trace_missing])
-        fig.update_layout(
-            mapbox=dict(
-                style="open-street-map",
-                center={'lat': center_lat, 'lon': center_lon},
-                zoom=10
+        # build the two choropleths
+        fig = go.Figure([
+            go.Choroplethmapbox(
+                geojson=json.loads(valid.to_json()),
+                locations=valid['id'],
+                z=valid['Prediction'],
+                colorscale='YlGnBu',
+                marker_opacity=0.6,
+                marker_line_width=1,
+                colorbar=dict(title="Prediction"),
+                featureidkey="properties.id",
+                name="Prediction"
             ),
-            margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
-            legend=dict(x=0, y=1)
-        )
+            go.Choroplethmapbox(
+                geojson=json.loads(missing.to_json()),
+                locations=missing['id'],
+                z=[0]*len(missing),
+                colorscale=[[0, "black"], [1, "black"]],
+                marker_opacity=0.9,
+                marker_line_width=1,
+                showscale=False,
+                featureidkey="properties.id",
+                name="Missing"
+            )
+        ])
+
+        # center on data
+        if not gdf.empty:
+            ctr = gdf.geometry.centroid
+            fig.update_layout(
+                mapbox=dict(
+                    style="open-street-map",
+                    center={'lat': ctr.y.mean(), 'lon': ctr.x.mean()},
+                    zoom=10
+                ),
+                margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
+                legend=dict(x=0, y=1)
+            )
+        else:
+            raise ValueError("No geometries to plot")
+
         return fig
 
     except Exception as e:
-        # In case of error, return a blank map with an error annotation.
-        fig = go.Figure(
-            data=go.Scattermapbox(
-                lat=[40.7128],
-                lon=[-74.0060],
-                mode='markers',
-                marker=dict(opacity=0)
-            )
-        )
+        logger.error(f"Error in update_predictions_map: {e}", exc_info=True)
+        # blank fallback
+        fig = go.Figure(go.Scattermapbox(
+            lat=[40.7128], lon=[-74.0060],
+            mode='markers', marker=dict(opacity=0)
+        ))
         fig.update_layout(
             mapbox=dict(
                 style="open-street-map",
@@ -1957,10 +1972,12 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
             margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
             annotations=[dict(
                 text="An error occurred while updating predictions map.",
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False, font=dict(size=20)
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                font=dict(size=16)
             )]
         )
         return fig
+
 
 @app.callback(
     Output('input_DEMOGIDX_5', 'value'),
@@ -2212,7 +2229,8 @@ def reset_predictions(n_clicks, editable_gpkg_path, current_refresh):
     Output('predictions_refresh', 'data'),
     [Input('county_selector_tab4', 'value'),
      Input('apply_updated_data', 'n_clicks'),
-     Input('reset_predictions', 'n_clicks')],
+     Input('reset_predictions', 'n_clicks'),
+     Input('model_selector_tab4', 'value')],
     [State('selected_census_tract', 'data'),
      State('editable_gpkg_path', 'data'),
      State('input_DEMOGIDX_5', 'value'),
@@ -2227,7 +2245,8 @@ def reset_predictions(n_clicks, editable_gpkg_path, current_refresh):
      State('input_Commute_TripMiles_TripEnd_avg', 'value'),
      State('predictions_refresh', 'data')]
 )
-def update_editable_gpkg_and_predictions(county_selector_value, apply_n_clicks, reset_n_clicks,
+def update_editable_gpkg_and_predictions(county_selector_value, apply_n_clicks, reset_n_clicks, 
+                                          model_file,
                                           tract_id, gpkg_path,
                                           demogidx, peopcolorpct, unemppct,
                                           pct_residential, pct_industrial, pct_retail, pct_commercial,
@@ -2269,8 +2288,16 @@ def update_editable_gpkg_and_predictions(county_selector_value, apply_n_clicks, 
                 gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = commute_start
                 gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg'] = commute_end
                 gdf.to_file(gpkg_path, driver="GPKG")
-                # Run the predictions model (which may update/create a predictions file)
-                subprocess.run(["python", "AI.py", gpkg_path], check=True)
+                # model_file comes from the dropdown
+                base, ext = os.path.splitext(gpkg_path)
+                if model_file == "AI2.py":
+                    out_file = base + "_with_gwr_predictions" + ext
+                else:
+                    out_file = base + "_with_predictions" + ext
+
+                cmd = ["python", model_file, gpkg_path, out_file]
+                logger.debug(f"Running prediction with: {cmd}")
+                subprocess.run(cmd, check=True)
                 new_refresh = (current_refresh or 0) + 1
                 return gpkg_path, new_refresh
             except Exception as e:
@@ -2294,7 +2321,11 @@ def update_editable_gpkg_and_predictions(county_selector_value, apply_n_clicks, 
             # Delete the associated predictions file if it exists.
             if gpkg_path:
                 base, ext = os.path.splitext(gpkg_path)
-                predictions_file = base + "_with_predictions" + ext
+                if model_file == "AI2.py":
+                    suffix = "_with_gwr_predictions"
+                else:
+                    suffix = "_with_predictions"
+                predictions_file = base + suffix + ext
                 if os.path.exists(predictions_file):
                     try:
                         os.remove(predictions_file)
@@ -2314,71 +2345,97 @@ def update_editable_gpkg_and_predictions(county_selector_value, apply_n_clicks, 
     else:
         raise PreventUpdate
 
+# --- store_original_prediction ---
 @app.callback(
     Output('original_prediction', 'data'),
-    Input('selected_census_tract', 'data'),
+    [
+        Input('selected_census_tract', 'data'),
+        Input('model_selector_tab4',  'value')
+    ],
     State('editable_gpkg_path', 'data')
 )
-def store_original_prediction(selected_tract, gpkg_path):
-    if not selected_tract or not gpkg_path:
+def store_original_prediction(tract_id, model_file, gpkg_path):
+    if not (tract_id and gpkg_path):
         raise PreventUpdate
-    try:
-        gdf = gpd.read_file(gpkg_path)
-        row = gdf[gdf['id'] == selected_tract]
-        if row.empty:
-            return None
-        original_value = row.iloc[0].get('Prediction', 'N/A')
-        return original_value
-    except Exception as e:
-        logger.error(f"Error reading original prediction: {e}")
+
+    # pick suffix + column
+    if model_file == "AI2.py":
+        suffix, col = "_with_gwr_predictions", "GWR_Prediction"
+    else:
+        suffix, col = "_with_predictions",     "Prediction"
+
+    base, ext = os.path.splitext(gpkg_path)
+    county_pred = f"{base}{suffix}{ext}"
+
+    # load per‐county if it exists, otherwise global
+    if os.path.exists(county_pred):
+        gdf = gpd.read_file(county_pred)
+    else:
+        gdf = gpd.read_file(DEFAULT_PRED_FILES[model_file])
+
+    if col not in gdf.columns:
+        # nothing to store yet
         return None
 
+    return gdf.loc[gdf['id'] == tract_id, col].iloc[0]
+
+# ----------------------------------------------------------------
+# Single callback to drive the prediction bar for both ForestISO and GWR
 @app.callback(
     Output('prediction_bar', 'children'),
-    [Input('original_prediction', 'data'),
-     Input('predictions_refresh', 'data')],
-    State('editable_gpkg_path', 'data'),
-    State('selected_census_tract', 'data')
+    [
+        Input('original_prediction',    'data'),
+        Input('predictions_refresh',    'data'),
+        Input('model_selector_tab4',    'value')
+    ],
+    [
+        State('editable_gpkg_path',     'data'),
+        State('selected_census_tract',  'data')
+    ]
 )
-def update_prediction_bar(original_prediction, refresh_val, gpkg_path, selected_tract):
+def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_path, selected_tract):
+    # if nothing selected yet
     if not selected_tract or not gpkg_path:
         return "No census tract selected."
+
+    # choose file suffix and column name based on model
+    if model_file == "AI2.py":
+        suffix, col = "_with_gwr_predictions", "GWR_Prediction"
+    else:
+        suffix, col = "_with_predictions", "Prediction"
+
+    base, ext = os.path.splitext(gpkg_path)
+    county_pred_file = f"{base}{suffix}{ext}"
+
+    # load the correct GeoPackage
+    if os.path.exists(county_pred_file):
+        gdf = gpd.read_file(county_pred_file)
+    else:
+        # fall back to the global default
+        gdf = gpd.read_file(DEFAULT_PRED_FILES[model_file])
+
+    # if column missing
+    if col not in gdf.columns:
+        return f"Model '{model_file}' has no '{col}' column."
+
+    # grab the current value for this tract
     try:
-        # Check if the predictions file exists (the AI model writes updates here)
-        base, ext = os.path.splitext(gpkg_path)
-        predictions_file = base + "_with_predictions" + ext
-        if os.path.exists(predictions_file):
-            file_to_read = predictions_file
-        else:
-            file_to_read = gpkg_path
+        current_val = gdf.loc[gdf['id'] == selected_tract, col].iloc[0]
+    except Exception:
+        return "Selected tract not found."
 
-        gdf = gpd.read_file(file_to_read)
-        row = gdf[gdf['id'] == selected_tract]
-        if row.empty:
-            return "Selected tract not found in GPkg."
-        current_prediction = row.iloc[0].get('Prediction', 'N/A')
-        
-        # Convert predictions to floats and round to 2 decimals (if possible)
+    # helper for formatting
+    def fmt(x):
         try:
-            original_val = float(original_prediction)
-            original_str = f"{original_val:.2f}"
-        except Exception:
-            original_str = str(original_prediction)
-        try:
-            current_val = float(current_prediction)
-            current_str = f"{current_val:.2f}"
-        except Exception:
-            current_str = str(current_prediction)
+            return f"{float(x):.2f}"
+        except:
+            return str(x)
 
-        # Force a new line by returning separate html.Div children.
-        return html.Div([
-            html.Div(f"Original Prediction: {original_str}"),
-            html.Div(f"Current Prediction: {current_str}")
-        ])
-    except Exception as e:
-        logger.error(f"Error updating prediction bar: {e}")
-        return f"Error reading prediction: {e}"
-
+    return html.Div([
+        html.Div(f"Model: {model_file}", style={'fontWeight':'bold'}),
+        html.Div(f"Original Prediction: {fmt(original_prediction)}"),
+        html.Div(f"Current Prediction:  {fmt(current_val)}"),
+    ])
 
 # ----------------------------
 # 8. Run the Dash App

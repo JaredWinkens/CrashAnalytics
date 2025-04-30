@@ -837,6 +837,7 @@ def render_content(tab):
                         ),
                         dcc.Graph(
                             id='scatter_map',
+                            className='responsive-graph',
                             figure={
                                 'data': [],
                                 'layout': {
@@ -851,7 +852,6 @@ def render_content(tab):
                                     'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
                                 }
                             },
-                            className='responsive-graph',
                             config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
                         )
                     ],
@@ -927,6 +927,7 @@ def render_content(tab):
             html.Div(
                 dcc.Graph(
                     id='heatmap_graph',
+                    className='responsive-graph',
                     figure={
                         'data': [],
                         'layout': {
@@ -957,6 +958,7 @@ def render_content(tab):
             html.Div(
                 dcc.Graph(
                     id='scatter_map_tab3',
+                    className='responsive-graph',
                     figure={
                         'data': [],
                         'layout': {
@@ -1144,6 +1146,7 @@ def render_content(tab):
             html.Div(
                 dcc.Graph(
                     id='predictions_map',
+                    className='responsive-graph',
                     figure={
                         'data': [],
                         'layout': {

@@ -281,50 +281,38 @@ county_fips_map = {
 def load_census_data(file_path):
     """
     Load and preprocess census data from a GeoPackage (.gpkg) file.
-    For each feature, convert the geometry to geojson and add all attributes (except geometry)
-    to the properties so that later you can use, for example, DEMOGIDX_5, PEOPCOLORPCT, etc.
+    Normalize CNTY_NAME to strip the ' County' suffix and title-case.
     """
     census_polygons_by_county = {}
     try:
         gdf = gpd.read_file(file_path)
-        logger.debug(f"Census GeoPackage loaded with {len(gdf)} records.")
         for idx, row in gdf.iterrows():
-            county_name = row.get('CNTY_NAME')
-            if pd.isna(county_name):
-                logger.warning(f"Missing CNTY_NAME for row {idx}. Skipping.")
-                continue
-            county_name = county_name.strip().title()
-
-            # Get the geometry from either 'geom' or 'geometry'
-            geom_val = row.get('geom')
-            if geom_val is None:
-                geom_val = row.get('geometry')
-            if geom_val is None:
-                logger.error(f"Row {idx} does not have a geometry value. Skipping.")
+            raw = row.get('CNTY_NAME')
+            if pd.isna(raw):
                 continue
 
-            try:
-                polygon_geojson = mapping(geom_val)
-            except Exception as e:
-                logger.error(f"Error converting geometry at row {idx}: {e}")
+            # strip off any trailing " County" and title-case
+            county_name = standardize_county_name(raw)
+
+            # pick up the geometry
+            geom = row.get('geom') or row.get('geometry')
+            if geom is None:
                 continue
 
-            # Include all attributes except the geometry columns.
-            properties = row.to_dict()
-            properties.pop('geom', None)
-            properties.pop('geometry', None)
-            polygon_geojson["properties"] = properties
+            poly = mapping(geom)
+            props = row.to_dict()
+            props.pop('geom', None)
+            props.pop('geometry', None)
+            poly['properties'] = props
 
-            if county_name not in census_polygons_by_county:
-                census_polygons_by_county[county_name] = []
-            census_polygons_by_county[county_name].append(polygon_geojson)
-        
-        logger.debug(f"Total counties with polygons: {len(census_polygons_by_county)}.")
+            census_polygons_by_county.setdefault(county_name, []).append(poly)
+
         return census_polygons_by_county
 
     except Exception as e:
-        logger.error(f"Error loading Census data from .gpkg: {e}")
+        logger.error(f"Error loading Census data: {e}")
         return {}
+
 
 # ----------------------------
 # 3. Initialize Dash App
@@ -575,6 +563,9 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
     return html.Div(controls, className='responsive-controls')
 
 def census_controls():
+    # Grab the exact, normalized county names from your loaded GeoPackage
+    counties = sorted(census_polygons_by_county.keys())
+
     controls = [
         html.Div([
             html.Label('County:'),
@@ -598,8 +589,8 @@ def census_controls():
         dcc.Dropdown(
             id='county_selector_tab3',
             options=[{'label': 'All', 'value': 'All'}] +
-                    [{'label': county, 'value': county} for county in county_coordinates.keys()],
-            value=['Albany'],
+                    [{'label': c, 'value': c} for c in counties],
+            value=['Albany'],  # default selection
             multi=True,
             placeholder='Select one or more counties or All',
             style={'width': '100%'}
@@ -608,25 +599,26 @@ def census_controls():
         dcc.Dropdown(
             id='census_attribute_selector',
             options=[
-                {'label': 'Demographic Index', 'value': 'DEMOGIDX_5'},
-                {'label': 'People of Color %', 'value': 'PEOPCOLORPCT'},
-                {'label': 'Unemployment %', 'value': 'UNEMPPCT'},
-                {'label': 'Residential %', 'value': 'pct_residential'},
-                {'label': 'Industrial %', 'value': 'pct_industrial'},
-                {'label': 'Retail %', 'value': 'pct_retail'},
-                {'label': 'Commercial %', 'value': 'pct_commercial'},
-                {'label': 'AADT Crash Rate', 'value': 'AADT Crash Rate'},
-                {'label': 'VRU Crash Rate', 'value': 'VRU Crash Rate'},
-                {'label': 'AADT', 'value': 'AADT'},
-                {'label': 'Commute TripMiles Start Avg', 'value': 'Commute_TripMiles_TripStart_avg'},
-                {'label': 'Commute TripMiles End Avg', 'value': 'Commute_TripMiles_TripEnd_avg'},
+                {'label': 'Demographic Index',               'value': 'DEMOGIDX_5'},
+                {'label': 'People of Color %',               'value': 'PEOPCOLORPCT'},
+                {'label': 'Unemployment %',                  'value': 'UNEMPPCT'},
+                {'label': 'Residential %',                   'value': 'pct_residential'},
+                {'label': 'Industrial %',                    'value': 'pct_industrial'},
+                {'label': 'Retail %',                        'value': 'pct_retail'},
+                {'label': 'Commercial %',                    'value': 'pct_commercial'},
+                {'label': 'AADT Crash Rate',                 'value': 'AADT Crash Rate'},
+                {'label': 'VRU Crash Rate',                  'value': 'VRU Crash Rate'},
+                {'label': 'AADT',                            'value': 'AADT'},
+                {'label': 'Commute TripMiles Start Avg',     'value': 'Commute_TripMiles_TripStart_avg'},
+                {'label': 'Commute TripMiles End Avg',       'value': 'Commute_TripMiles_TripEnd_avg'},
                 {'label': 'Commute Biking and Walking Mile', 'value': 'Commute_BIKING_and_WALKING_Mile'},
                 {'label': 'Commute Biking and Walking Mi 1', 'value': 'Commute_BIKING_and_WALKING_Mi_1'},
             ],
-            value='DEMOGIDX_5'
+            value='DEMOGIDX_5',
+            style={'width': '100%'}
         ),
         html.Div(id='census_color_legend', style={'margin-top': '20px'}),
-        # New text box below the opacity bar:
+        # contextual notes
         html.Div([
             html.P("Crash data 2020-2023", style={'margin': '0'}),
             html.P("Environmental justice data 2023", style={'margin': '0'}),
@@ -645,14 +637,13 @@ def census_controls():
             html.Button('Apply Filter', id='apply_filter_tab3', n_clicks=0, style={'margin-top': '30px'})
         ], style={'margin-bottom': '20px', 'margin-top': '20px'})
     ]
-    return html.Div(controls)
+
+    return html.Div(controls, className='responsive-controls')
 
 # ----------------------------
 # 6. Define the Main Layout
 # ----------------------------
 app.layout = html.Div([
-    dcc.Graph(id='scatter_map_tab3', style={'display': 'none'}),
-
     # Navigation Tabs
     dcc.Tabs(id='tabs', value='tab-1', children=[
         dcc.Tab(label='Data Downloader', value='tab-1'),
@@ -1227,191 +1218,94 @@ def toggle_vru_options_tab3(main_value):
     ]
 )
 def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
-                    start_date, end_date, time_range, days_of_week,
-                    gender, weather, light, road_surface, main_data_type, vru_data_type):
-    try:
-        ctx = dash.callback_context
-        if not ctx.triggered:
-            triggered_input = 'initial_load'
-        else:
-            triggered_input = ctx.triggered[0]['prop_id'].split('.')[0]
-        logger.debug(f"Triggered Input: {triggered_input}")
+             start_date, end_date, time_range, days_of_week,
+             gender, weather, light, road_surface, main_data_type, vru_data_type):
+    ctx = callback_context
+    triggered = (
+        ctx.triggered[0]['prop_id'].split('.')[0]
+        if ctx.triggered else 'initial_load'
+    )
+    logger.debug(f"Triggered Input: {triggered}")
 
-        df = get_county_data(counties_selected)
-        if df.empty:
-            if not counties_selected or 'All' in counties_selected:
-                lat_center, lon_center = 40.7128, -74.0060
-            else:
-                lat_center = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-                lon_center = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-            fig = px.scatter_mapbox(
-                pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
-                lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
-            )
-            fig.update_traces(marker=dict(opacity=0))
-            return fig, None
+    # load data
+    df = get_county_data(counties_selected)
 
-        if triggered_input == 'apply_filter_tab1':
-            effective_start_date = start_date
-            effective_end_date = end_date
-            logger.debug(f"Applying user-selected date range: {effective_start_date} to {effective_end_date}")
+    # compute default center
+    if isinstance(counties_selected, list) and counties_selected and 'All' not in counties_selected:
+        lat_center = sum(county_coordinates[c]['lat'] for c in counties_selected) / len(counties_selected)
+        lon_center = sum(county_coordinates[c]['lon'] for c in counties_selected) / len(counties_selected)
+    else:
+        lat_center, lon_center = 40.7128, -74.0060
 
-            # Apply the main filters.
-            filtered_df = filter_data_tab1(
-                df, effective_start_date, effective_end_date, time_range,
-                days_of_week, gender, weather, light, road_surface, main_data_type, vru_data_type
-            )
+    # helper to set uirevision key
+    key = 'tab1-' + '-'.join(sorted(counties_selected or []))
 
-            # *** NEW: If a box has been drawn, filter to only those selected points ***
-            if selected_data and 'points' in selected_data and selected_data['points']:
-                selected_case_numbers = [point['customdata'][0] for point in selected_data['points']]
-                filtered_df = filtered_df[filtered_df['Case_Number'].isin(selected_case_numbers)]
-                logger.debug(f"Applied box selection: {len(filtered_df)} records remain after filtering by drawn box.")
-
-            if filtered_df.empty:
-                if not counties_selected or 'All' in counties_selected:
-                    lat_center, lon_center = 40.7128, -74.0060
-                else:
-                    lat_center = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-                    lon_center = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-                fig = px.scatter_mapbox(
-                    pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
-                    lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
-                )
-                fig.update_traces(marker=dict(opacity=0))
-            else:
-                if 'All' in counties_selected:
-                    lat_center = df['Y_Coord'].mean()
-                    lon_center = df['X_Coord'].mean()
-                else:
-                    lat_center = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-                    lon_center = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-                fig = px.scatter_mapbox(
-                    filtered_df,
-                    lat='Y_Coord', lon='X_Coord', zoom=10, mapbox_style="open-street-map",
-                    hover_name='Case_Number',
-                    hover_data={
-                        'Crash_Date': True,
-                        'Crash_Time': True,
-                        'WeatherCon': True,
-                        'LightCon': True,
-                        'RoadSurfac': True
-                    },
-                    custom_data=['Case_Number']
-                )
-                fig.update_layout(mapbox_center={'lat': lat_center, 'lon': lon_center})
-
-            logger.debug(f"Updated Scatter Map for counties {counties_selected} with {len(filtered_df)} records.")
-            return fig, selected_data
-
-        elif triggered_input == 'clear_drawing_tab1':
-            # Clear the drawn box (selectedData) by reapplying filters without it.
-            effective_start_date = '1900-01-01'
-            effective_end_date = '1901-01-01'
-            logger.debug(f"Clearing drawing and reapplying filters: {effective_start_date} to {effective_end_date}")
-            filtered_df = filter_data_tab1(
-                df, effective_start_date, effective_end_date, time_range,
-                days_of_week, gender, weather, light, road_surface, main_data_type, vru_data_type
-            )
-            if filtered_df.empty:
-                if not counties_selected or 'All' in counties_selected:
-                    lat_center, lon_center = 40.7128, -74.0060
-                else:
-                    lat_center = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-                    lon_center = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-                fig = px.scatter_mapbox(
-                    pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
-                    lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
-                )
-                fig.update_traces(marker=dict(opacity=0))
-            else:
-                if 'All' in counties_selected:
-                    lat_center = df['Y_Coord'].mean()
-                    lon_center = df['X_Coord'].mean()
-                else:
-                    lat_center = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-                    lon_center = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-                fig = px.scatter_mapbox(
-                    filtered_df,
-                    lat='Y_Coord', lon='X_Coord', zoom=10, mapbox_style="open-street-map",
-                    hover_name='Case_Number',
-                    hover_data={
-                        'Crash_Date': True,
-                        'Crash_Time': True,
-                        'WeatherCon': True,
-                        'LightCon': True,
-                        'RoadSurfac': True
-                    },
-                    custom_data=['Case_Number']
-                )
-                fig.update_layout(mapbox_center={'lat': lat_center, 'lon': lon_center})
-            logger.debug(f"Scatter Map after clearing drawing for counties {counties_selected} has {len(filtered_df)} records.")
-            return fig, None
-
-        else:
-            # Initial load branch
-            effective_start_date = '1900-01-01'
-            effective_end_date = '1901-01-01'
-            logger.debug(f"Initial load: Applying default date range {effective_start_date} to {effective_end_date}")
-            filtered_df = filter_data_tab1(
-                df, effective_start_date, effective_end_date, [0, 23],
-                ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-                'All', 'All', 'All', 'All', main_data_type, vru_data_type
-            )
-            if filtered_df.empty:
-                if not counties_selected or 'All' in counties_selected:
-                    lat_center, lon_center = 40.7128, -74.0060
-                else:
-                    lat_center = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-                    lon_center = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-                fig = px.scatter_mapbox(
-                    pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
-                    lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
-                )
-                fig.update_traces(marker=dict(opacity=0))
-            else:
-                if 'All' in counties_selected:
-                    lat_center = df['Y_Coord'].mean()
-                    lon_center = df['X_Coord'].mean()
-                else:
-                    lat_center = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-                    lon_center = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-                fig = px.scatter_mapbox(
-                    filtered_df,
-                    lat='Y_Coord', lon='X_Coord', zoom=10, mapbox_style="open-street-map",
-                    hover_name='Case_Number',
-                    hover_data={
-                        'Crash_Date': True,
-                        'Crash_Time': True,
-                        'WeatherCon': True,
-                        'LightCon': True,
-                        'RoadSurfac': True
-                    },
-                    custom_data=['Case_Number']
-                )
-                fig.update_layout(mapbox_center={'lat': lat_center, 'lon': lon_center})
-            logger.debug(f"Initial Scatter Map for counties {counties_selected} has {len(filtered_df)} records.")
-            return fig, None
-
-    except Exception as e:
-        logger.error(f"Error in update_map_tab1: {e}")
-        if isinstance(counties_selected, list) and counties_selected and 'All' not in counties_selected:
-            lat_center = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-            lon_center = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-        else:
-            lat_center, lon_center = 40.7128, -74.0060
+    # empty‐data fallback
+    if df.empty:
         fig = px.scatter_mapbox(
             pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
             lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
         )
-        fig.update_layout(
-            annotations=[dict(
-                text="An error occurred while updating the map.",
-                showarrow=False, xref="paper", yref="paper", x=0.5, y=0.5, font=dict(size=20)
-            )]
+        fig.update_traces(marker=dict(opacity=0))
+        fig.update_layout(uirevision=key)
+        return fig, None
+
+    # apply filters
+    if triggered == 'apply_filter_tab1':
+        filtered = filter_data_tab1(
+            df, start_date, end_date, time_range,
+            days_of_week, gender, weather, light, road_surface,
+            main_data_type, vru_data_type
+        )
+        if selected_data and 'points' in selected_data:
+            keep = [pt['customdata'][0] for pt in selected_data['points']]
+            filtered = filtered[filtered['Case_Number'].isin(keep)]
+        df_to_plot = filtered
+        out_selected = selected_data
+
+    elif triggered == 'clear_drawing_tab1':
+        # reapply filters but drop box selection
+        df_to_plot = filter_data_tab1(
+            df, start_date, end_date, time_range,
+            days_of_week, gender, weather, light, road_surface,
+            main_data_type, vru_data_type
+        )
+        out_selected = None
+
+    else:  # initial_load
+        df_to_plot = filter_data_tab1(
+            df, '1900-01-01', '1901-01-01', [0, 23],
+            ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+            'All','All','All','All',
+            main_data_type, vru_data_type
+        )
+        out_selected = None
+
+    # build the figure
+    if df_to_plot.empty:
+        fig = px.scatter_mapbox(
+            pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
+            lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
         )
         fig.update_traces(marker=dict(opacity=0))
-        return fig, None
+    else:
+        fig = px.scatter_mapbox(
+            df_to_plot,
+            lat='Y_Coord', lon='X_Coord', zoom=10, mapbox_style="open-street-map",
+            hover_name='Case_Number',
+            hover_data={
+                'Crash_Date': True, 'Crash_Time': True,
+                'WeatherCon': True, 'LightCon': True,
+                'RoadSurfac': True
+            },
+            custom_data=['Case_Number']
+        )
+        fig.update_layout(mapbox_center={'lat': lat_center, 'lon': lon_center})
+
+    # **persist view** except when counties change
+    fig.update_layout(uirevision=key)
+
+    return fig, out_selected
 
 
 # Callback to Download Filtered Data in Data Downloader Tab (tab1)
@@ -1490,7 +1384,7 @@ def filter_data_tab2(df, data_type):
         Input('apply_filter_tab2', 'n_clicks')
     ],
     [
-        State('radius_slider_tab2', 'value'),  # Slider value now represents miles.
+        State('radius_slider_tab2', 'value'),
         State('county_selector_tab2', 'value'),
         State('data_type_selector_main_tab2', 'value'),
         State('data_type_selector_vru_tab2', 'value'),
@@ -1504,109 +1398,82 @@ def filter_data_tab2(df, data_type):
         State('road_surface_selector_tab2', 'value')
     ]
 )
-def update_heatmap_tab2(apply_n_clicks, radius_miles, counties_selected, main_data_type, vru_data_type, 
-                        start_date, end_date, time_range, days_of_week, gender, weather, light, road_surface):
-    try:
-        zoom = 10  # Define a default zoom level.
-        # Use a default center if needed.
-        default_center = {'lat': 40.7128, 'lon': -74.0060}
+def update_heatmap_tab2(apply_n_clicks, radius_miles, counties_selected, main_data_type, vru_data_type,
+                        start_date, end_date, time_range, days_of_week,
+                        gender, weather, light, road_surface):
+    zoom = 10
+    default_center = {'lat': 40.7128, 'lon': -74.0060}
+    # use counties as key so changing counties resets view, otherwise persists
+    key = 'tab2-' + '-'.join(sorted(counties_selected or []))
 
-        # If the button hasn't been pressed yet, show a default figure.
-        if not apply_n_clicks:
-            radius_pixels = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
-            fig = px.density_mapbox(
-                pd.DataFrame({'Latitude': [default_center['lat']], 'Longitude': [default_center['lon']]}),
-                lat='Latitude',
-                lon='Longitude',
-                radius=radius_pixels,
-                center=default_center,
-                zoom=zoom,
-                mapbox_style="open-street-map",
-                opacity=0.7
-            )
-            return fig
-
-        # Get data for the selected counties.
-        df = get_county_data(counties_selected)
-        if df.empty:
-            radius_pixels = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
-            fig = px.density_mapbox(
-                pd.DataFrame({'Latitude': [default_center['lat']], 'Longitude': [default_center['lon']]}),
-                lat='Latitude',
-                lon='Longitude',
-                radius=radius_pixels,
-                center=default_center,
-                zoom=zoom,
-                mapbox_style="open-street-map",
-                opacity=0.7
-            )
-            return fig
-
-        # Apply filters to the data.
-        filtered_df = filter_data_tab1(
-            df, start_date, end_date, time_range,
-            days_of_week, gender, weather, light, road_surface,
-            main_data_type, vru_data_type
-        )
-        
-        # Determine the center of the map.
-        if 'All' in counties_selected:
-            center_lat = df['Y_Coord'].mean()
-            center_lon = df['X_Coord'].mean()
-        else:
-            center_lat = sum([county_coordinates[c]['lat'] for c in counties_selected]) / len(counties_selected)
-            center_lon = sum([county_coordinates[c]['lon'] for c in counties_selected]) / len(counties_selected)
-        
-        # Convert the slider's miles to pixel radius.
-        radius_pixels = convert_miles_to_pixels(radius_miles, zoom, center_lat)
-        
-        # Create the density mapbox heatmap.
-        fig = px.density_mapbox(
-            filtered_df,
-            lat='Y_Coord',
-            lon='X_Coord',
-            radius=radius_pixels,
-            center={'lat': center_lat, 'lon': center_lon},
-            zoom=zoom,
-            mapbox_style="open-street-map",
-            opacity=0.7,
-            hover_data={
-                'Case_Number': True,
-                'Crash_Date': True,
-                'Crash_Time': True,
-                'WeatherCon': True,
-                'LightCon': True,
-                'RoadSurfac': True
-            }
-        )
-        return fig
-
-    except Exception as e:
-        logger.error(f"Error in update_heatmap_tab2: {e}")
-        zoom = 10
-        radius_pixels = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
+    # before first click: show default
+    if not apply_n_clicks:
+        radius_px = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
         fig = px.density_mapbox(
             pd.DataFrame({'Latitude': [default_center['lat']], 'Longitude': [default_center['lon']]}),
-            lat='Latitude',
-            lon='Longitude',
-            radius=radius_pixels,
-            center=default_center,
-            zoom=zoom,
-            mapbox_style="open-street-map",
-            opacity=0.7
+            lat='Latitude', lon='Longitude',
+            radius=radius_px,
+            center=default_center, zoom=zoom,
+            mapbox_style="open-street-map", opacity=0.7
         )
-        fig.update_layout(
-            annotations=[{
-                'text': "An error occurred while updating the heatmap.",
-                'showarrow': False,
-                'xref': "paper",
-                'yref': "paper",
-                'x': 0.5,
-                'y': 0.5,
-                'font': {'size': 20}
-            }]
-        )
+        fig.update_layout(uirevision=key)
         return fig
+
+    df = get_county_data(counties_selected)
+    if df.empty:
+        radius_px = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
+        fig = px.density_mapbox(
+            pd.DataFrame({'Latitude': [default_center['lat']], 'Longitude': [default_center['lon']]}),
+            lat='Latitude', lon='Longitude',
+            radius=radius_px,
+            center=default_center, zoom=zoom,
+            mapbox_style="open-street-map", opacity=0.7
+        )
+        fig.update_layout(uirevision=key)
+        return fig
+
+    # apply same filters as tab1
+    filtered = filter_data_tab1(
+        df, start_date, end_date, time_range,
+        days_of_week, gender, weather, light, road_surface,
+        main_data_type, vru_data_type
+    )
+
+    # determine center
+    if 'All' in counties_selected:
+        center_lat = df['Y_Coord'].mean()
+        center_lon = df['X_Coord'].mean()
+    else:
+        center_lat = sum(county_coordinates[c]['lat'] for c in counties_selected) / len(counties_selected)
+        center_lon = sum(county_coordinates[c]['lon'] for c in counties_selected) / len(counties_selected)
+
+    # convert miles to pixels
+    radius_px = convert_miles_to_pixels(radius_miles, zoom, center_lat)
+
+    # build heatmap
+    fig = px.density_mapbox(
+        filtered,
+        lat='Y_Coord', lon='X_Coord',
+        radius=radius_px,
+        center={'lat': center_lat, 'lon': center_lon},
+        zoom=zoom,
+        mapbox_style="open-street-map",
+        opacity=0.7,
+        hover_data={
+            'Case_Number': True,
+            'Crash_Date': True,
+            'Crash_Time': True,
+            'WeatherCon': True,
+            'LightCon': True,
+            'RoadSurfac': True
+        }
+    )
+
+    # persist camera/zoom except when counties change
+    fig.update_layout(uirevision=key)
+
+    return fig
+
 
 # ----------------------------
 # 7.3. Callback for Census Data Tab (tab3)
@@ -1618,143 +1485,76 @@ def update_heatmap_tab2(apply_n_clicks, radius_miles, counties_selected, main_da
     State('census_attribute_selector', 'value')
 )
 def update_map_tab3(apply_n_clicks, counties_selected, selected_attribute):
-    try:
-        fig = go.Figure()
+    # Build a uirevision key based on the selected counties
+    key = 'tab3-' + '-'.join(sorted(counties_selected or []))
 
-        # Determine selected counties.
-        if isinstance(counties_selected, list):
-            if 'All' in counties_selected:
-                selected_counties = list(census_polygons_by_county.keys())
-            else:
-                selected_counties = counties_selected
-        else:
-            selected_counties = [counties_selected]
+    fig = go.Figure()
 
-        # Gather all attribute values for normalization.
-        all_attr_values = []
-        for county in selected_counties:
-            polygons = census_polygons_by_county.get(county, [])
-            if not polygons:
-                alternate_key = county + " County"
-                polygons = census_polygons_by_county.get(alternate_key, [])
-            for poly in polygons:
+    # Determine which counties to draw
+    if isinstance(counties_selected, list) and 'All' in counties_selected:
+        selected_counties = list(census_polygons_by_county.keys())
+    else:
+        selected_counties = counties_selected or []
+
+    # Gather values for normalization
+    vals = []
+    for county in selected_counties:
+        for poly in census_polygons_by_county.get(county, []):
+            try:
+                vals.append(float(poly["properties"].get(selected_attribute, 0)))
+            except:
+                pass
+    min_val, max_val = (min(vals), max(vals)) if vals else (0, 1)
+
+    # Plot each polygon with opacity based on its value
+    for county in selected_counties:
+        for poly in census_polygons_by_county.get(county, []):
+            coords_list = []
+            geoms = [poly.get('coordinates')] if poly.get('type') == 'Polygon' else poly.get('coordinates', [])
+            for coords in geoms:
+                ring = coords[0] if poly.get('type') == 'Polygon' else coords[0]
+                if ring[0] != ring[-1]:
+                    ring = ring + [ring[0]]
+                if len(ring) < 3:
+                    continue
+                lons, lats = zip(*ring)
                 try:
-                    val = float(poly["properties"].get(selected_attribute, 0))
-                    all_attr_values.append(val)
-                except (TypeError, ValueError):
-                    pass
+                    norm = (float(poly["properties"].get(selected_attribute, 0)) - min_val) / (max_val - min_val)
+                except:
+                    norm = 0.5
+                opacity = 0.1 + 0.9 * norm
+                fig.add_trace(go.Scattermapbox(
+                    lat=list(lats),
+                    lon=list(lons),
+                    mode='lines',
+                    fill='toself',
+                    fillcolor=f'rgba(0,255,0,{opacity})',
+                    line=dict(color='green', width=2),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
 
-        if all_attr_values:
-            min_val = min(all_attr_values)
-            max_val = max(all_attr_values)
-        else:
-            min_val, max_val = 0, 1  # Fallback normalization
+    # Compute center
+    all_lats = [pt for trace in fig.data for pt in trace.lat]
+    all_lons = [pt for trace in fig.data for pt in trace.lon]
+    if all_lats and all_lons:
+        center_lat, center_lon = sum(all_lats)/len(all_lats), sum(all_lons)/len(all_lons)
+    else:
+        # fallback to first county or NYC
+        fallback = county_coordinates.get(selected_counties[0], {'lat': 40.7128, 'lon': -74.0060})
+        center_lat, center_lon = fallback['lat'], fallback['lon']
 
-        poly_lats = []
-        poly_lons = []
+    fig.update_layout(
+        mapbox=dict(
+            style="open-street-map",
+            center={'lat': center_lat, 'lon': center_lon},
+            zoom=10
+        ),
+        margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
+        uirevision=key
+    )
 
-        # Add Census Polygon Traces with dynamic opacity.
-        for county in selected_counties:
-            polygons = census_polygons_by_county.get(county, [])
-            if not polygons:
-                alternate_key = county + " County"
-                polygons = census_polygons_by_county.get(alternate_key, [])
-            for poly in polygons:
-                if poly.get('type') == 'Polygon':
-                    coords = poly.get('coordinates', [])[0]
-                    if coords[0] != coords[-1]:
-                        coords = list(coords) + [coords[0]]
-                    if len(coords) < 3:
-                        continue
-                    lons, lats = zip(*coords)
-                    poly_lats.extend(lats)
-                    poly_lons.extend(lons)
-                    try:
-                        value = float(poly["properties"].get(selected_attribute, 0))
-                        norm = (value - min_val) / (max_val - min_val) if max_val > min_val else 1.0
-                    except Exception:
-                        norm = 0.5
-                    opacity = 0.1 + 0.9 * norm
-                    fig.add_trace(
-                        go.Scattermapbox(
-                            lat=list(lats),
-                            lon=list(lons),
-                            mode='lines',
-                            fill='toself',
-                            fillcolor=f'rgba(0,255,0,{opacity})',
-                            line=dict(color='green', width=2),
-                            showlegend=False,
-                            hoverinfo='skip'
-                        )
-                    )
-                elif poly.get('type') == 'MultiPolygon':
-                    for polygon in poly.get('coordinates', []):
-                        coords = polygon[0]
-                        if coords[0] != coords[-1]:
-                            coords = list(coords) + [coords[0]]
-                        if len(coords) < 3:
-                            continue
-                        lons, lats = zip(*coords)
-                        poly_lats.extend(lats)
-                        poly_lons.extend(lons)
-                        try:
-                            value = float(poly["properties"].get(selected_attribute, 0))
-                            norm = (value - min_val) / (max_val - min_val) if max_val > min_val else 1.0
-                        except Exception:
-                            norm = 0.5
-                        opacity = 0.1 + 0.9 * norm
-                        fig.add_trace(
-                            go.Scattermapbox(
-                                lat=list(lats),
-                                lon=list(lons),
-                                mode='lines',
-                                fill='toself',
-                                fillcolor=f'rgba(0,255,0,{opacity})',
-                                line=dict(color='green', width=2),
-                                showlegend=False,
-                                hoverinfo='skip'
-                            )
-                        )
-
-        # Determine map center from polygons.
-        if poly_lats and poly_lons:
-            center_lat = sum(poly_lats) / len(poly_lats)
-            center_lon = sum(poly_lons) / len(poly_lons)
-        else:
-            center_lat, center_lon = county_coordinates.get('Albany', {'lat': 42.6526, 'lon': -73.7562}).values()
-
-        fig.update_layout(
-            mapbox=dict(
-                style="open-street-map",
-                center={'lat': center_lat, 'lon': center_lon},
-                zoom=10
-            ),
-            margin={'l': 0, 'r': 0, 't': 0, 'b': 0}
-        )
-        return fig
-
-    except Exception as e:
-        logger.error(f"Error in update_map_tab3: {e}")
-        center_lat, center_lon = 40.7128, -74.0060
-        fig = px.scatter_mapbox(
-            pd.DataFrame({'Latitude': [center_lat], 'Longitude': [center_lon]}),
-            lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
-        )
-        fig.update_layout(
-            annotations=[dict(
-                text="An error occurred while updating the map.",
-                showarrow=False,
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5,
-                font=dict(size=20)
-            )],
-            margin={'l': 0, 'r': 0, 't': 0, 'b': 0}
-        )
-        fig.update_traces(marker=dict(opacity=0))
-        return fig
-
+    return fig
 
 
 # Callback to Download Filtered Data in Census Data Tab (tab3)
@@ -1868,52 +1668,46 @@ county_mapping = {}
     State('editable_gpkg_path', 'data')
 )
 def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_file, editable_gpkg_path):
+    # build a uirevision key so that changing only predictions doesn't move the map
+    counties_key = '-'.join(sorted(selected_counties or []))
+    key = f"tab4-{model_file}-{counties_key}"
+
+    # pick which gpkg & column
+    if model_file == "AI2.py":
+        suffix, pred_col = "_with_gwr_predictions", "GWR_Prediction"
+        default_file = DEFAULT_PRED_FILES['AI2.py']
+    else:
+        suffix, pred_col = "_with_predictions", "Prediction"
+        default_file = DEFAULT_PRED_FILES['AI.py']
+
+    # decide which file to load
+    if editable_gpkg_path:
+        base, ext = os.path.splitext(editable_gpkg_path)
+        candidate = f"{base}{suffix}{ext}"
+        gpkg_file = candidate if os.path.exists(candidate) else default_file
+    else:
+        gpkg_file = default_file
+
     try:
-        # pick suffix & default per model
-        if model_file == "AI2.py":
-            suffix = "_with_gwr_predictions"
-            default_file = "./AI/Rename_DataSet2.25_with_gwr_predictions.gpkg"
-            pred_col = "GWR_Prediction"
-        else:
-            suffix = "_with_predictions"
-            default_file = "./AI/Large_DataSet2.25_with_predictions.gpkg"
-            pred_col = "Prediction"
-
-        # figure out which gpkg to load
-        if editable_gpkg_path:
-            base, ext = os.path.splitext(editable_gpkg_path)
-            candidate = base + suffix + ext
-            gpkg_file = candidate if os.path.exists(candidate) else default_file
-        else:
-            gpkg_file = default_file
-
-        logger.debug(f"Loading predictions from {gpkg_file}")
-
-        # load it
         gdf = gpd.read_file(gpkg_file)
-
-        # unify under 'Prediction'
         if pred_col not in gdf.columns:
-            raise KeyError(f"Expected column '{pred_col}' not found in {gpkg_file}")
+            raise KeyError(f"Missing '{pred_col}' in {gpkg_file}")
         gdf['Prediction'] = gdf[pred_col]
 
-        # standardize county name
-        if 'CNTY_NAME' in gdf.columns:
+        # normalize county names & filter
+        if 'CNTY_NAME' in gdf:
             gdf['CNTY_NAME'] = (
                 gdf['CNTY_NAME']
-                .str.replace(" County", "", regex=False)
-                .str.strip()
-                .str.title()
+                   .str.replace(" County", "", regex=False)
+                   .str.strip()
+                   .str.title()
             )
-        # filter on dropdown
         if selected_counties:
             gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
 
-        # split valid vs missing
-        valid = gdf[~gdf['Prediction'].isna()]
-        missing = gdf[gdf['Prediction'].isna()]
+        valid   = gdf[~gdf['Prediction'].isna()]
+        missing = gdf[ gdf['Prediction'].isna()]
 
-        # build the two choropleths
         fig = go.Figure([
             go.Choroplethmapbox(
                 geojson=json.loads(valid.to_json()),
@@ -1930,7 +1724,7 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
                 geojson=json.loads(missing.to_json()),
                 locations=missing['id'],
                 z=[0]*len(missing),
-                colorscale=[[0, "black"], [1, "black"]],
+                colorscale=[[0,"black"],[1,"black"]],
                 marker_opacity=0.9,
                 marker_line_width=1,
                 showscale=False,
@@ -1939,26 +1733,28 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
             )
         ])
 
-        # center on data
+        # compute center only if there's data
         if not gdf.empty:
             ctr = gdf.geometry.centroid
-            fig.update_layout(
-                mapbox=dict(
-                    style="open-street-map",
-                    center={'lat': ctr.y.mean(), 'lon': ctr.x.mean()},
-                    zoom=10
-                ),
-                margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
-                legend=dict(x=0, y=1)
-            )
+            center = {'lat': ctr.y.mean(), 'lon': ctr.x.mean()}
         else:
-            raise ValueError("No geometries to plot")
+            center = {'lat': 40.7128, 'lon': -74.0060}
 
+        fig.update_layout(
+            mapbox=dict(
+                style="open-street-map",
+                center=center,
+                zoom=10
+            ),
+            margin={'l':0,'r':0,'t':0,'b':0},
+            legend=dict(x=0, y=1),
+            uirevision=key
+        )
         return fig
 
     except Exception as e:
         logger.error(f"Error in update_predictions_map: {e}", exc_info=True)
-        # blank fallback
+        # fallback blank map, also preserving camera if possible
         fig = go.Figure(go.Scattermapbox(
             lat=[40.7128], lon=[-74.0060],
             mode='markers', marker=dict(opacity=0)
@@ -1966,15 +1762,16 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         fig.update_layout(
             mapbox=dict(
                 style="open-street-map",
-                center={'lat': 40.7128, 'lon': -74.0060},
+                center={'lat':40.7128,'lon':-74.0060},
                 zoom=10
             ),
-            margin={'l': 0, 'r': 0, 't': 0, 'b': 0},
+            margin={'l':0,'r':0,'t':0,'b':0},
             annotations=[dict(
-                text="An error occurred while updating predictions map.",
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-                font=dict(size=16)
-            )]
+                text="Error loading predictions map",
+                xref="paper", yref="paper", x=0.5, y=0.5,
+                showarrow=False
+            )],
+            uirevision=key
         )
         return fig
 
@@ -2224,126 +2021,149 @@ def reset_predictions(n_clicks, editable_gpkg_path, current_refresh):
 
 
 
+# ----------------------------------------------------------------
+# 8.x. Callback to handle county‐selection, data‐editing, apply/reset predictions
 @app.callback(
     Output('editable_gpkg_path', 'data'),
     Output('predictions_refresh', 'data'),
-    [Input('county_selector_tab4', 'value'),
-     Input('apply_updated_data', 'n_clicks'),
-     Input('reset_predictions', 'n_clicks'),
-     Input('model_selector_tab4', 'value')],
-    [State('selected_census_tract', 'data'),
-     State('editable_gpkg_path', 'data'),
-     State('input_DEMOGIDX_5', 'value'),
-     State('input_PEOPCOLORPCT', 'value'),
-     State('input_UNEMPPCT', 'value'),
-     State('input_pct_residential', 'value'),
-     State('input_pct_industrial', 'value'),
-     State('input_pct_retail', 'value'),
-     State('input_pct_commercial', 'value'),
-     State('input_AADT', 'value'),
-     State('input_Commute_TripMiles_TripStart_avg', 'value'),
-     State('input_Commute_TripMiles_TripEnd_avg', 'value'),
-     State('predictions_refresh', 'data')]
+    [
+        Input('county_selector_tab4', 'value'),
+        Input('apply_updated_data',    'n_clicks'),
+        Input('reset_predictions',     'n_clicks'),
+        Input('model_selector_tab4',   'value'),
+    ],
+    [
+        State('selected_census_tract',                'data'),
+        State('editable_gpkg_path',                   'data'),
+        State('input_DEMOGIDX_5',                     'value'),
+        State('input_PEOPCOLORPCT',                   'value'),
+        State('input_UNEMPPCT',                       'value'),
+        State('input_pct_residential',                'value'),
+        State('input_pct_industrial',                 'value'),
+        State('input_pct_retail',                     'value'),
+        State('input_pct_commercial',                 'value'),
+        State('input_AADT',                           'value'),
+        State('input_Commute_TripMiles_TripStart_avg','value'),
+        State('input_Commute_TripMiles_TripEnd_avg',  'value'),
+        State('predictions_refresh',                  'data')
+    ]
 )
-def update_editable_gpkg_and_predictions(county_selector_value, apply_n_clicks, reset_n_clicks, 
-                                          model_file,
-                                          tract_id, gpkg_path,
-                                          demogidx, peopcolorpct, unemppct,
-                                          pct_residential, pct_industrial, pct_retail, pct_commercial,
-                                          aadt, commute_start, commute_end, current_refresh):
+def update_editable_gpkg_and_predictions(
+    county_selector_value,
+    apply_n_clicks,
+    reset_n_clicks,
+    model_file,
+    selected_tract,
+    gpkg_path,
+    demogidx, peopcolorpct, unemppct,
+    pct_residential, pct_industrial, pct_retail, pct_commercial,
+    aadt, commute_start, commute_end,
+    current_refresh
+):
     ctx = dash.callback_context
     if not ctx.triggered:
         raise PreventUpdate
+    triggered = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    triggered_prop = ctx.triggered[0]['prop_id'].split('.')[0]
-
-    # --- Branch 1: County Selection ---
-    # When a new county is selected, create a new editable GPkg.
-    if triggered_prop == 'county_selector_tab4':
+    # 1) User just picked a county → create new editable GPKG
+    if triggered == 'county_selector_tab4':
         if county_selector_value and len(county_selector_value) == 1:
             county = county_selector_value[0]
-            editable_file = copy_county_gpkg(county)
-            # Do not change the refresh counter here.
-            return editable_file, current_refresh
+            new_file = copy_county_gpkg(county)
+            return new_file, current_refresh
         else:
             raise PreventUpdate
 
-    # --- Branch 2: Apply Updated Data ---
-    # When "Apply Updated Data" is clicked, update the current GPkg with new values and bump refresh.
-    elif triggered_prop == 'apply_updated_data':
-        if apply_n_clicks and tract_id and gpkg_path:
-            try:
-                gdf = gpd.read_file(gpkg_path)
-                idx = gdf[gdf['id'] == tract_id].index
-                if idx.empty:
-                    raise PreventUpdate
-                gdf.loc[idx, 'DEMOGIDX_5'] = demogidx
-                gdf.loc[idx, 'PEOPCOLORPCT'] = peopcolorpct
-                gdf.loc[idx, 'UNEMPPCT'] = unemppct
-                gdf.loc[idx, 'pct_residential'] = pct_residential
-                gdf.loc[idx, 'pct_industrial'] = pct_industrial
-                gdf.loc[idx, 'pct_retail'] = pct_retail
-                gdf.loc[idx, 'pct_commercial'] = pct_commercial
-                gdf.loc[idx, 'AADT'] = aadt
-                gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = commute_start
-                gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg'] = commute_end
-                gdf.to_file(gpkg_path, driver="GPKG")
-                # model_file comes from the dropdown
-                base, ext = os.path.splitext(gpkg_path)
-                if model_file == "AI2.py":
-                    out_file = base + "_with_gwr_predictions" + ext
-                else:
-                    out_file = base + "_with_predictions" + ext
-
-                cmd = ["python", model_file, gpkg_path, out_file]
-                logger.debug(f"Running prediction with: {cmd}")
-                subprocess.run(cmd, check=True)
-                new_refresh = (current_refresh or 0) + 1
-                return gpkg_path, new_refresh
-            except Exception as e:
-                logger.error(f"Error updating GPkg: {e}")
+    # 2) User clicked “Apply Updated Data”
+    elif triggered == 'apply_updated_data':
+        if apply_n_clicks and selected_tract and gpkg_path:
+            # load, update the tract, save
+            gdf = gpd.read_file(gpkg_path)
+            idx = gdf[gdf['id'] == selected_tract].index
+            if idx.empty:
                 raise PreventUpdate
+            # set each field
+            gdf.loc[idx, 'DEMOGIDX_5']  = demogidx
+            gdf.loc[idx, 'PEOPCOLORPCT'] = peopcolorpct
+            gdf.loc[idx, 'UNEMPPCT']    = unemppct
+            gdf.loc[idx, 'pct_residential'] = pct_residential
+            gdf.loc[idx, 'pct_industrial']  = pct_industrial
+            gdf.loc[idx, 'pct_retail']      = pct_retail
+            gdf.loc[idx, 'pct_commercial']  = pct_commercial
+            gdf.loc[idx, 'AADT']            = aadt
+            gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = commute_start
+            gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg']   = commute_end
+            gdf.to_file(gpkg_path, driver="GPKG")
+            import sys
+            base, ext = os.path.splitext(gpkg_path)
+            if model_file == 'AI2.py':
+                suffix = '_with_gwr_predictions'
+            else:
+                suffix = '_with_predictions'
+            output_file = f"{base}{suffix}{ext}"
+
+            # build the command using the same Python interpreter
+            cmd = [
+                sys.executable,
+                model_file,
+                gpkg_path,
+                output_file
+            ]
+            logger.debug(f"Running prediction command: {cmd}")
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                logger.debug(f"{model_file} stdout:\n{proc.stdout}")
+                logger.debug(f"{model_file} stderr:\n{proc.stderr}")
+            except subprocess.CalledProcessError as e:
+                # this will show you exactly what went wrong inside AI2.py
+                logger.error(f"{model_file} failed with exit code {e.returncode}")
+                logger.error(f"--- {model_file} stdout:\n{e.stdout}")
+                logger.error(f"--- {model_file} stderr:\n{e.stderr}")
+                # don’t let the app crash, but also don’t update the map
+                raise PreventUpdate
+
+            # if we get here, the script ran successfully
+            new_refresh = (current_refresh or 0) + 1
+            return gpkg_path, new_refresh
+
         else:
             raise PreventUpdate
 
-    # --- Branch 3: Reset (Refresh) Predictions ---
-    # When "Reset Predictions" (refresh) is clicked, delete the current editable GPkg and its predictions,
-    # then create a new editable GPkg with original values.
-    elif triggered_prop == 'reset_predictions':
+    # 3) User clicked “Reset Predictions” → delete editable+pred files & remake
+    elif triggered == 'reset_predictions':
         if reset_n_clicks:
-            # Delete the editable GPkg file if it exists.
+            # remove the old editable gpkg
             if gpkg_path and os.path.exists(gpkg_path):
-                try:
-                    os.remove(gpkg_path)
-                    logger.info(f"Deleted editable GPkg: {gpkg_path}")
-                except Exception as e:
-                    logger.error(f"Error deleting editable GPkg {gpkg_path}: {e}")
-            # Delete the associated predictions file if it exists.
-            if gpkg_path:
-                base, ext = os.path.splitext(gpkg_path)
-                if model_file == "AI2.py":
-                    suffix = "_with_gwr_predictions"
-                else:
-                    suffix = "_with_predictions"
-                predictions_file = base + suffix + ext
-                if os.path.exists(predictions_file):
-                    try:
-                        os.remove(predictions_file)
-                        logger.info(f"Deleted predictions file: {predictions_file}")
-                    except Exception as e:
-                        logger.error(f"Error deleting predictions file {predictions_file}: {e}")
-            # Recreate a new editable GPkg from the original data using the currently selected county.
-            if county_selector_value and len(county_selector_value) == 1:
-                county = county_selector_value[0]
-                new_editable_file = copy_county_gpkg(county)
+                os.remove(gpkg_path)
+            # remove its predictions
+            base, ext = os.path.splitext(gpkg_path or '')
+            if model_file == 'AI2.py':
+                suffix = '_with_gwr_predictions'
             else:
-                new_editable_file = None
-            new_refresh = (current_refresh or 0) + 1
-            return new_editable_file, new_refresh
+                suffix = '_with_predictions'
+            pred_file = f"{base}{suffix}{ext}"
+            if os.path.exists(pred_file):
+                os.remove(pred_file)
+
+            # re-copy the original for the currently selected county
+            if county_selector_value and len(county_selector_value) == 1:
+                new_file = copy_county_gpkg(county_selector_value[0])
+            else:
+                new_file = None
+
+            return new_file, (current_refresh or 0) + 1
         else:
             raise PreventUpdate
+
     else:
         raise PreventUpdate
+
 
 # --- store_original_prediction ---
 @app.callback(

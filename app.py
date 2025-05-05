@@ -1,20 +1,19 @@
 import dash
 from dash import dcc, html, Input, Output, State, callback_context
 import plotly.express as px
-import plotly.graph_objects as go  # Added import for graph_objects
+import plotly.graph_objects as go  
 import pandas as pd
 import os
 import logging
 from flask_caching import Cache
 from dash.exceptions import PreventUpdate
-from shapely import wkt  # Added import for shapely WKT parsing
-from shapely.geometry import mapping  # Added import for geometry mapping
-import geopandas as gpd  # Import GeoPandas for GeoPackage reading
+from shapely import wkt  
+from shapely.geometry import mapping  
+import geopandas as gpd 
 import math
 import json
 import subprocess
 
-# where your two models dump their “big” prediction files:
 DEFAULT_PRED_FILES = {
     'AI.py':  './AI/Large_DataSet2.25_with_predictions.gpkg',
     'AI2.py': './AI/Rename_DataSet2.25_with_gwr_predictions.gpkg'
@@ -71,20 +70,22 @@ def standardize_county_name(name):
 
 def load_data_final(file_path):
     """
-    Load and preprocess Data_Final.csv.
+    Load and preprocess Data_Final.csv, including Crash_Date, Crash_Time, 
+    Data_Type, Crash_Type, and SeverityCategory.
     """
     usecols = [
-        'CaseNumber',             # Case_Number
-        'CrashDate',              # Crash_Date
-        'CrashTimeFormatted',     # Crash_Time
-        'RoadSurfaceCondition',   # RoadSurfac (Corrected)
-        'WeatherCondition',       # WeatherCon
-        'LightCondition',         # LightCon
-        'CountyName',             # County
-        'CrashCategory',          # Data_Type
-        'CrashType',              # New column for VRU type
-        'Longitude',              # X_Coord
-        'Latitude'                # Y_Coord
+        'CaseNumber',            # → Case_Number
+        'CrashDate',             # → Crash_Date
+        'CrashTimeFormatted',    # → Crash_Time
+        'RoadSurfaceCondition',  # → RoadSurfac
+        'WeatherCondition',      # → WeatherCon
+        'LightCondition',        # → LightCon
+        'CountyName',            # → County
+        'CrashCategory',         # → Data_Type
+        'CrashType',             # → Crash_Type
+        'Longitude',             # → X_Coord
+        'Latitude',              # → Y_Coord
+        'SeverityCategory'       
     ]
 
     dtype = {
@@ -96,9 +97,10 @@ def load_data_final(file_path):
         'LightCondition': str,
         'CountyName': str,
         'CrashCategory': str,
-        'CrashType': str,         # New dtype
+        'CrashType': str,
         'Longitude': float,
-        'Latitude': float
+        'Latitude': float,
+        'SeverityCategory': str     
     }
 
     chunks = []
@@ -107,79 +109,69 @@ def load_data_final(file_path):
             file_path,
             usecols=usecols,
             dtype=dtype,
-            chunksize=100000,
+            chunksize=100_000,
             header=0
         )):
-            logger.debug(f"Data_Final.csv Chunk {i} columns: {chunk.columns.tolist()}")
-
-            # Rename columns to match the main DataFrame structure
+            # Rename standard schema
             chunk = chunk.rename(columns={
                 'CaseNumber': 'Case_Number',
                 'CrashDate': 'Crash_Date',
                 'CrashTimeFormatted': 'Crash_Time',
-                'RoadSurfaceCondition': 'RoadSurfac',  # Corrected renaming
+                'RoadSurfaceCondition': 'RoadSurfac',
                 'WeatherCondition': 'WeatherCon',
                 'LightCondition': 'LightCon',
                 'CrashCategory': 'Data_Type',
-                'CrashType': 'Crash_Type',   # New renaming
+                'CrashType': 'Crash_Type',
                 'Longitude': 'X_Coord',
                 'Latitude': 'Y_Coord',
-                'CountyName': 'County'
+                'CountyName': 'County',
+                'SeverityCategory': 'SeverityCategory'  
             })
 
-            # Verify 'County' column exists after renaming
-            if 'County' not in chunk.columns:
-                logger.warning(f"'CountyName' column missing in chunk {i}. Assigning 'Unknown'.")
-                chunk['County'] = 'Unknown'
+            # Standardize County
+            chunk['County'] = chunk['County'].fillna('Unknown').apply(standardize_county_name)
 
-            # Standardize 'County' names
-            chunk['County'] = chunk['County'].apply(standardize_county_name)
-
-            # Convert date and time columns
+            # Parse dates & times
             chunk['Crash_Date'] = pd.to_datetime(chunk['Crash_Date'], errors='coerce')
-            chunk['Crash_Time'] = pd.to_datetime(chunk['Crash_Time'], format='%I:%M %p', errors='coerce').dt.hour
+            chunk['Crash_Time'] = (
+                pd.to_datetime(chunk['Crash_Time'], format='%I:%M %p', errors='coerce')
+                  .dt.hour
+            )
 
-            # Handle missing values and clean string columns
-            chunk['WeatherCon'] = chunk['WeatherCon'].fillna('Unknown').str.strip().str.title()
-            chunk['LightCon'] = chunk['LightCon'].fillna('Unknown').str.strip().str.title()
-            chunk['RoadSurfac'] = chunk['RoadSurfac'].fillna('Unknown').str.strip().str.title()
-            chunk['Data_Type'] = chunk['Data_Type'].fillna('Non-VRU').str.strip().str.upper()
-            
-            # New: Process Crash_Type column (convert to uppercase)
-            chunk['Crash_Type'] = chunk['Crash_Type'].fillna('Unknown').str.strip().str.upper()
+            # Fill/clean the string columns
+            chunk['WeatherCon'] = chunk['WeatherCon'].fillna('Unknown').str.title()
+            chunk['LightCon']   = chunk['LightCon'].fillna('Unknown').str.title()
+            chunk['RoadSurfac'] = chunk['RoadSurfac'].fillna('Unknown').str.title()
+            chunk['Data_Type']  = chunk['Data_Type'].fillna('Non-VRU').str.upper()
+            chunk['Crash_Type'] = chunk['Crash_Type'].fillna('Unknown').str.upper()
 
-            # Add 'Sex' column as 'Unknown' since Data_Final.csv does not have this information
+            # Sex isn't in the CSV so we fill with Unknown
             chunk['Sex'] = 'Unknown'
 
-            # Reorder columns to match the main DataFrame – now including Crash_Type
+            # Reorder so SeverityCategory is at the end
             chunk = chunk[
-                ['Case_Number', 'X_Coord', 'Y_Coord', 'Crash_Date',
-                 'Crash_Time', 'Sex', 'WeatherCon', 'LightCon', 'RoadSurfac',
-                 'Data_Type', 'County', 'Crash_Type']
+                ['Case_Number','X_Coord','Y_Coord','Crash_Date','Crash_Time',
+                 'Sex','WeatherCon','LightCon','RoadSurfac','Data_Type',
+                 'County','Crash_Type','SeverityCategory']
             ]
 
             chunks.append(chunk)
-            logger.debug(f"Data_Final.csv Chunk {i} loaded with {len(chunk)} records.")
 
-        if chunks:
-            df = pd.concat(chunks, ignore_index=True)
-        else:
-            df = pd.DataFrame(columns=[
-                'Case_Number', 'X_Coord', 'Y_Coord', 'Crash_Date',
-                'Crash_Time', 'Sex', 'WeatherCon', 'LightCon', 'RoadSurfac',
-                'Data_Type', 'County', 'Crash_Type'
-            ])
-            logger.warning(f"No data found in {file_path}.")
+        df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame(columns=[
+            'Case_Number','X_Coord','Y_Coord','Crash_Date','Crash_Time',
+            'Sex','WeatherCon','LightCon','RoadSurfac','Data_Type',
+            'County','Crash_Type','SeverityCategory'
+        ])
 
-        logger.debug(f"Total records loaded from Data_Final.csv: {len(df)}")
+        logger.debug(f"Loaded {len(df)} records from Data_Final.csv (with SeverityCategory).")
         return df
 
     except Exception as e:
         logger.error(f"Error loading Data_Final.csv: {e}")
         return pd.DataFrame(columns=[
-            'Case_Number', 'X_Coord', 'Y_Coord', 'Crash_Date',
-            'Crash_Time', 'Sex', 'WeatherCon', 'LightCon', 'RoadSurfac',
-            'Data_Type', 'County', 'Crash_Type'
+            'Case_Number','X_Coord','Y_Coord','Crash_Date','Crash_Time',
+            'Sex','WeatherCon','LightCon','RoadSurfac','Data_Type',
+            'County','Crash_Type','SeverityCategory'
         ])
 
 
@@ -323,7 +315,7 @@ server = app.server
 
 # Initialize caching
 cache = Cache(app.server, config={
-    'CACHE_TYPE': 'simple'  # For development; use Redis or similar in production
+    'CACHE_TYPE': 'simple'  
 })
 
 # Define cache timeout (e.g., 1 hour)
@@ -355,8 +347,10 @@ def convert_miles_to_pixels(miles, zoom, center_latitude):
     pixel_radius = distance_meters / meters_per_pixel
     return pixel_radius
 
-def filter_data_tab1(df, start_date, end_date, time_range, days_of_week, gender, weather, light, road_surface, main_data_type, vru_data_type):
-    # Date filtering
+def filter_data_tab1(df, start_date, end_date, time_range, days_of_week,
+                     gender, weather, light, road_surface,
+                     severity_category, crash_type,
+                     main_data_type, vru_data_type):    
     if start_date and end_date:
         df = df[(df['Crash_Date'] >= start_date) & (df['Crash_Date'] <= end_date)]
     # Time filtering
@@ -374,6 +368,11 @@ def filter_data_tab1(df, start_date, end_date, time_range, days_of_week, gender,
         df = df[df['LightCon'] == light]
     if road_surface != 'All':
         df = df[df['RoadSurfac'] == road_surface]
+    if severity_category != 'All':
+        df = df[df['SeverityCategory'] == severity_category]
+    if crash_type and crash_type != 'All':       
+       df = df[df['Crash_Type'].str.strip().str.upper() == crash_type.upper()]
+
     
     # Crash type filtering based on main_data_type:
     if main_data_type == 'VRU':
@@ -388,7 +387,7 @@ def filter_data_tab1(df, start_date, end_date, time_range, days_of_week, gender,
             df = df[df['Crash_Type'].str.strip().str.upper() == 'COLLISION WITH PEDESTRIAN']
     elif main_data_type == 'All':
         # "All" returns every crash (both VRU and non-VRU).
-        pass  # no additional filtering on crash type
+        pass 
     elif main_data_type == 'None':
         # "None" returns no crash data.
         df = df.iloc[0:0]
@@ -400,7 +399,7 @@ def filter_data_tab1(df, start_date, end_date, time_range, days_of_week, gender,
 # 5. Define UI Components
 # ----------------------------
 
-def common_controls(prefix, show_buttons, available_counties, unique_weather, unique_light, unique_road):
+def common_controls(prefix, show_buttons, available_counties, unique_weather, unique_light, unique_road , unique_crash_types):
     controls = [
         html.Div([
             html.Label('County:'),
@@ -540,7 +539,36 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
             value='All',
             placeholder='Select light condition',
             style={'width': '100%'}
-        )
+        ),
+        
+        html.Label('Select Crash Type:', style={'margin-top': '20px'}),
+        dcc.Dropdown(
+            id=f'crash_type_selector_{prefix}',
+            options=[{'label': 'All', 'value': 'All'}] +
+                    [{'label': ct,    'value': ct} for ct in unique_crash_types],
+            value='All',
+            placeholder='Select crash type',
+            style={'width': '100%'}
+        ),
+
+        html.Label('Select Severity Category:', style={'margin-top': '20px'}),
+        dcc.Dropdown(
+            id=f'severity_selector_{prefix}',
+            options=[{'label': 'All', 'value': 'All'}] +
+                    [{'label': v, 'value': v} for v in ['Fatal', 'Non-Fatal']],
+            value='All',
+            placeholder='Select severity category',
+            style={'width': '100%'}
+        ),
+                html.Label('Crash Type:', style={'margin-top': '20px'}),
+        dcc.Dropdown(
+            id=f'crash_type_selector_{prefix}',
+            options=[{'label':'All','value':'All'}] +
+                    [{'label': t, 'value': t} for t in unique_crash_types],
+            value='All',
+            placeholder='Select crash type',
+            style={'width':'100%'}
+        ),
     ]
     
     if show_buttons:
@@ -563,7 +591,6 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
     return html.Div(controls, className='responsive-controls')
 
 def census_controls():
-    # Grab the exact, normalized county names from your loaded GeoPackage
     counties = sorted(census_polygons_by_county.keys())
 
     controls = [
@@ -674,12 +701,11 @@ app.layout = html.Div([
 
     # Download Components
     dcc.Download(id='download_data'),
-    dcc.Download(id='download_data_tab3'),   # For Census Data tab
+    dcc.Download(id='download_data_tab3'),   
     
-    # (Place these near your other dcc.Store definitions in your app.layout)
     dcc.Store(id='editable_gpkg_path'),
     dcc.Store(id='selected_census_tract'),
-    dcc.Store(id='predictions_refresh', data=0),  # New store for refresh trigger
+    dcc.Store(id='predictions_refresh', data=0),
     dcc.Dropdown(
     id='model_selector_tab4',
     options=[
@@ -706,54 +732,186 @@ html.Div(
     id='county_edit_modal',
     children=[
         html.H3("Edit County Data"),
+
         html.Div([
-            html.Label("Demographic Index (5‑yr ACS)"),
-            dcc.Input(id="input_DEMOGIDX_5", type="number", value=None, step=0.01)
-        ]),
+            html.Label("Demographic Index (5-yr ACS)"),
+            dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_DEMOGIDX_5", n_clicks=0),
+            html.Button("–", id="minus_input_DEMOGIDX_5", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
             html.Label("People of Color (%)"),
-            dcc.Input(id="input_PEOPCOLORPCT", type="number", value=None, step=0.01)
-        ]),
+            dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_PEOPCOLORPCT", n_clicks=0),
+            html.Button("–", id="minus_input_PEOPCOLORPCT", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
             html.Label("Unemployment Rate (%)"),
-            dcc.Input(id="input_UNEMPPCT", type="number", value=None, step=0.01)
-        ]),
+            dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_UNEMPPCT", n_clicks=0),
+            html.Button("–", id="minus_input_UNEMPPCT", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
             html.Label("Residential Land Use (%)"),
-            dcc.Input(id="input_pct_residential", type="number", value=None, step=0.01)
-        ]),
+            dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_pct_residential", n_clicks=0),
+            html.Button("–", id="minus_input_pct_residential", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
             html.Label("Industrial Land Use (%)"),
-            dcc.Input(id="input_pct_industrial", type="number", value=None, step=0.01)
-        ]),
+            dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_pct_industrial", n_clicks=0),
+            html.Button("–", id="minus_input_pct_industrial", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
             html.Label("Retail Land Use (%)"),
-            dcc.Input(id="input_pct_retail", type="number", value=None, step=0.01)
-        ]),
+            dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_pct_retail", n_clicks=0),
+            html.Button("–", id="minus_input_pct_retail", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
             html.Label("Commercial Land Use (%)"),
-            dcc.Input(id="input_pct_commercial", type="number", value=None, step=0.01)
-        ]),
+            dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_pct_commercial", n_clicks=0),
+            html.Button("–", id="minus_input_pct_commercial", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
             html.Label("Annual Average Daily Traffic"),
-            dcc.Input(id="input_AADT", type="number", value=None, step=0.01)
-        ]),
+            dcc.Input(id="input_AADT", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_AADT", n_clicks=0),
+            html.Button("–", id="minus_input_AADT", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
-            html.Label("Avg Commute Distance (Trip Start, mi)"),
-            dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=None, step=0.01)
-        ]),
+            html.Label("Avg Commute Distance (Start, mi)"),
+            dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_Commute_TripMiles_TripStart_avg", n_clicks=0),
+            html.Button("–", id="minus_input_Commute_TripMiles_TripStart_avg", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
-            html.Label("Avg Commute Distance (Trip End, mi)"),
-            dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=None, step=0.01)
-        ]),
+            html.Label("Avg Commute Distance (End, mi)"),
+            dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0),
+            html.Button("–", id="minus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
         html.Div([
-            html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0, style={'marginRight': '10px'}),
-            html.Button("Reset Predictions", id="reset_predictions", n_clicks=0),
-        ], style={'marginTop': '15px'}),
-        html.Button("Close", id="close_modal", n_clicks=0, style={'marginTop': '15px'})
+            html.Label("Total Population (ACS)"),
+            dcc.Input(id="input_ACSTOTPOP", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_ACSTOTPOP", n_clicks=0),
+            html.Button("–", id="minus_input_ACSTOTPOP", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Demographic Index (2-yr ACS)"),
+            dcc.Input(id="input_DEMOGIDX_2", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_DEMOGIDX_2", n_clicks=0),
+            html.Button("–", id="minus_input_DEMOGIDX_2", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Poverty Population"),
+            dcc.Input(id="input_PovertyPop", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_PovertyPop", n_clicks=0),
+            html.Button("–", id="minus_input_PovertyPop", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Disability (%)"),
+            dcc.Input(id="input_DISABILITYPCT", type="number", value=0, step=0.01),
+            html.Button("+", id="plus_input_DISABILITYPCT", n_clicks=0),
+            html.Button("–", id="minus_input_DISABILITYPCT", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Biking Trips (Start)"),
+            dcc.Input(id="input_BikingTrips(Start)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_BikingTrips(Start)", n_clicks=0),
+            html.Button("–", id="minus_input_BikingTrips(Start)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Biking Trips (End)"),
+            dcc.Input(id="input_BikingTrips(End)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_BikingTrips(End)", n_clicks=0),
+            html.Button("–", id="minus_input_BikingTrips(End)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Carpool Trips (Start)"),
+            dcc.Input(id="input_CarpoolTrips(Start)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_CarpoolTrips(Start)", n_clicks=0),
+            html.Button("–", id="minus_input_CarpoolTrips(Start)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Carpool Trips (End)"),
+            dcc.Input(id="input_CarpoolTrips(End)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_CarpoolTrips(End)", n_clicks=0),
+            html.Button("–", id="minus_input_CarpoolTrips(End)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Commercial Freight Trips (Start)"),
+            dcc.Input(id="input_CommercialFreightTrips(Start)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_CommercialFreightTrips(Start)", n_clicks=0),
+            html.Button("–", id="minus_input_CommercialFreightTrips(Start)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Commercial Freight Trips (End)"),
+            dcc.Input(id="input_CommercialFreightTrips(End)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_CommercialFreightTrips(End)", n_clicks=0),
+            html.Button("–", id="minus_input_CommercialFreightTrips(End)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Walking Trips (Start)"),
+            dcc.Input(id="input_WalkingTrips(Start)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_WalkingTrips(Start)", n_clicks=0),
+            html.Button("–", id="minus_input_WalkingTrips(Start)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Walking Trips (End)"),
+            dcc.Input(id="input_WalkingTrips(End)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_WalkingTrips(End)", n_clicks=0),
+            html.Button("–", id="minus_input_WalkingTrips(End)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Public Transit Trips (Start)"),
+            dcc.Input(id="input_PublicTransitTrips(Start)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_PublicTransitTrips(Start)", n_clicks=0),
+            html.Button("–", id="minus_input_PublicTransitTrips(Start)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Div([
+            html.Label("Public Transit Trips (End)"),
+            dcc.Input(id="input_PublicTransitTrips(End)", type="number", value=0, step=1),
+            html.Button("+", id="plus_input_PublicTransitTrips(End)", n_clicks=0),
+            html.Button("–", id="minus_input_PublicTransitTrips(End)", n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+
+        # ───────── APPLY / RESET / CLOSE ─────────
+        html.Div([
+            html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0),
+            html.Button("Reset Predictions",    id="reset_predictions",  n_clicks=0),
+        ], style={'marginBottom':'10px'}),
+
+        html.Button("Close", id="close_modal", n_clicks=0)
     ],
     style={
-        'display': 'none',  # Hidden by default
+        'display': 'none',
         'position': 'fixed',
         'top': '50%',
         'left': '50%',
@@ -764,6 +922,7 @@ html.Div(
         'zIndex': 1000
     }
 )
+
 
 ])
 
@@ -831,7 +990,8 @@ def render_content(tab):
                                 available_counties=available_counties,
                                 unique_weather=unique_weather,
                                 unique_light=unique_light,
-                                unique_road=unique_road
+                                unique_road=unique_road,
+                                unique_crash_types=unique_crash_types
                             ),
                             className='responsive-controls'
                         ),
@@ -870,7 +1030,6 @@ def render_content(tab):
     elif tab == 'tab-2':
         return html.Div([
             html.Div([
-                # Left-side: New slider block *above* the common controls
                 html.Div([
                     html.Label('Adjust Heatmap Radius:', style={'font-weight': 'bold'}),
                     html.Div(
@@ -912,15 +1071,14 @@ def render_content(tab):
                     )
                 ], style={'margin-bottom': '20px'}),
                 
-                # Now include your common controls (which starts with the county selector)
                 common_controls(
                     'tab2',
                     show_buttons=True,
                     available_counties=available_counties,
                     unique_weather=unique_weather,
                     unique_light=unique_light,
-                    unique_road=unique_road
-                )
+                    unique_road=unique_road,
+                    unique_crash_types=unique_crash_types)
             ], className='responsive-controls'),
             
             # Right-side: The Heatmap Graph container
@@ -1042,7 +1200,6 @@ def render_content(tab):
                 html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0, style={'fontSize': '12px'}),
                 html.Hr(),
                 html.H3("Edit Census Tract Data", style={'fontSize': '14px', 'marginBottom': '10px'}),
-                # Editing Controls – one row per field; add additional rows as needed.
                 html.Div([
                     html.Div([
                         html.Label("Demographic Index", style={'fontSize': '12px', 'marginRight': '5px'}),
@@ -1135,6 +1292,104 @@ def render_content(tab):
                                     style={'marginLeft': '5px', 'fontSize': '12px'})
                     ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'})
                 ], style={'display': 'flex', 'flexDirection': 'column', 'gap': '5px'}),
+                    html.Div([
+                        html.Label("Total Population (ACS)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_ACSTOTPOP", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_ACSTOTPOP", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_ACSTOTPOP", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Demographic Index (2-yr ACS)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_DEMOGIDX_2", type="number", value=0, step=0.01, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_DEMOGIDX_2", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_DEMOGIDX_2", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Poverty Population", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_PovertyPop", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_PovertyPop", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_PovertyPop", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Disability (%)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_DISABILITYPCT", type="number", value=0, step=0.01, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_DISABILITYPCT", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_DISABILITYPCT", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Biking Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_BikingTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_BikingTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_BikingTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Biking Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_BikingTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_BikingTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_BikingTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Carpool Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_CarpoolTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_CarpoolTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_CarpoolTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Carpool Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_CarpoolTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_CarpoolTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_CarpoolTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Commercial Freight Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_CommercialFreightTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_CommercialFreightTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_CommercialFreightTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Commercial Freight Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_CommercialFreightTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_CommercialFreightTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_CommercialFreightTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Walking Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_WalkingTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_WalkingTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_WalkingTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Walking Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_WalkingTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_WalkingTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_WalkingTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Public Transit Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_PublicTransitTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_PublicTransitTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_PublicTransitTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
+                    html.Div([
+                        html.Label("Public Transit Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
+                        dcc.Input(id="input_PublicTransitTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
+                        html.Button("+", id="plus_input_PublicTransitTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                        html.Button("–", id="minus_input_PublicTransitTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
+
                 html.Div([
                     html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0,
                                 style={'fontSize': '12px', 'marginRight': '5px'}),
@@ -1143,7 +1398,8 @@ def render_content(tab):
                 ], style={'marginTop': '10px', 'display': 'flex', 'justifyContent': 'center'})
             ], className='responsive-controls'),
             # Right-side: Predictions Map
-            html.Div(
+            html.Div([
+                # Predictions map
                 dcc.Graph(
                     id='predictions_map',
                     className='responsive-graph',
@@ -1158,16 +1414,20 @@ def render_content(tab):
                             'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
                         }
                     },
-                    config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
+                    config={
+                        'modeBarButtonsToRemove': ['lasso2d'],
+                        'displayModeBar': True,
+                        'scrollZoom': True
+                    }
                 ),
-                className='responsive-graph'
-            )
+
+                # Comparison scatter plot
+                dcc.Graph(
+                    id='comparison_graph',
+                    className='responsive-graph'
+                )
+            ], className='responsive-graph'),
         ], className='desktop-layout')
-
-
-
-
-
 
 @app.callback(
     Output('data_type_vru_options_tab1', 'style'),
@@ -1195,6 +1455,83 @@ def toggle_vru_options_tab3(main_value):
 # ----------------------------
 # 7.1. Callback for Data Downloader Tab (tab1)
 # ----------------------------
+@app.callback(
+    Output('comparison_graph', 'figure'),
+    Input('predictions_refresh',     'data'),
+    State('model_selector_tab4',     'value'),
+    State('county_selector_tab4',    'value'),
+    State('editable_gpkg_path',      'data'),
+)
+def update_comparison_graph(refresh, model_file, selected_counties, editable_gpkg_path):
+    import os
+    # choose GPKG & suffix exactly as in update_predictions_map
+    if model_file == "AI2.py":
+        suffix, default_file = "_with_gwr_predictions", DEFAULT_PRED_FILES['AI2.py']
+    else:
+        suffix, default_file = "_with_predictions",     DEFAULT_PRED_FILES['AI.py']
+
+    if editable_gpkg_path:
+        base, ext = os.path.splitext(editable_gpkg_path)
+        candidate = f"{base}{suffix}{ext}"
+        gpkg_file = candidate if os.path.exists(candidate) else default_file
+    else:
+        gpkg_file = default_file
+
+    # load it
+    gdf = gpd.read_file(gpkg_file)
+    # standardize and filter counties
+    if 'CNTY_NAME' in gdf.columns:
+        gdf['CNTY_NAME'] = (
+            gdf['CNTY_NAME']
+               .str.replace(" County", "", regex=False)
+               .str.strip()
+               .str.title()
+        )
+    if selected_counties:
+        gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+
+    # ensure Prediction column exists
+    if 'Prediction' not in gdf.columns:
+        return go.Figure()
+
+    # build scatter comparison
+    fig = go.Figure()
+    # Prediction vs AADT Crash Rate
+    # AADT Crash Rate vs Prediction
+    if 'AADT Crash Rate' in gdf.columns:
+        fig.add_trace(go.Scatter(
+            x=gdf['Prediction'],
+            y=gdf['AADT Crash Rate'],
+            mode='markers',
+            name='AADT Crash Rate',
+            hovertemplate=(
+                "<b>AADT Crash Rate</b><br>"
+                "Prediction: %{x:.2f}<br>"
+                "Observed: %{y:.2f}<extra></extra>"
+            )
+        ))
+
+    # VRU Crash Rate vs Prediction
+    if 'VRU Crash Rate' in gdf.columns:
+        fig.add_trace(go.Scatter(
+            x=gdf['Prediction'],
+            y=gdf['VRU Crash Rate'],
+            mode='markers',
+            name='VRU Crash Rate',
+            hovertemplate=(
+                "<b>VRU Crash Rate</b><br>"
+                "Prediction: %{x:.2f}<br>"
+                "Observed: %{y:.2f}<extra></extra>"
+            )
+        ))
+
+    fig.update_layout(
+        title="Model Prediction vs. Observed Crash Rates",
+        xaxis_title="Prediction",
+        yaxis_title="Crash Rate",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+    )
+    return fig
 
 @app.callback(
     [
@@ -1216,13 +1553,15 @@ def toggle_vru_options_tab3(main_value):
         State('weather_selector_tab1', 'value'),
         State('light_selector_tab1', 'value'),
         State('road_surface_selector_tab1', 'value'),
+        State('severity_selector_tab1','value'),
         State('data_type_selector_main_tab1', 'value'),
-        State('data_type_selector_vru_tab1', 'value')
+        State('data_type_selector_vru_tab1', 'value'),
+        State('crash_type_selector_tab1','value')
     ]
 )
 def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
              start_date, end_date, time_range, days_of_week,
-             gender, weather, light, road_surface, main_data_type, vru_data_type):
+             gender, weather, light, road_surface, severity_category, main_data_type, vru_data_type, crash_type):
     ctx = callback_context
     triggered = (
         ctx.triggered[0]['prop_id'].split('.')[0]
@@ -1257,21 +1596,23 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
     if triggered == 'apply_filter_tab1':
         filtered = filter_data_tab1(
             df, start_date, end_date, time_range,
-            days_of_week, gender, weather, light, road_surface,
-            main_data_type, vru_data_type
+            days_of_week, gender, weather, light, road_surface,  severity_category, crash_type,
+            main_data_type, vru_data_type, 
         )
         if selected_data and 'points' in selected_data:
             keep = [pt['customdata'][0] for pt in selected_data['points']]
             filtered = filtered[filtered['Case_Number'].isin(keep)]
         df_to_plot = filtered
         out_selected = selected_data
+        if crash_type and crash_type != 'All':
+            df_to_plot = df_to_plot[df_to_plot['Crash_Type'] == crash_type]
 
     elif triggered == 'clear_drawing_tab1':
         # reapply filters but drop box selection
         df_to_plot = filter_data_tab1(
             df, start_date, end_date, time_range,
-            days_of_week, gender, weather, light, road_surface,
-            main_data_type, vru_data_type
+            days_of_week, gender, weather, light, road_surface, severity_category,
+            main_data_type, vru_data_type, crash_type
         )
         out_selected = None
 
@@ -1279,7 +1620,7 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         df_to_plot = filter_data_tab1(
             df, '1900-01-01', '1901-01-01', [0, 23],
             ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
-            'All','All','All','All',
+            'All','All','All', 'All', 'All', 'All',
             main_data_type, vru_data_type
         )
         out_selected = None
@@ -1305,9 +1646,7 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         )
         fig.update_layout(mapbox_center={'lat': lat_center, 'lon': lon_center})
 
-    # **persist view** except when counties change
     fig.update_layout(uirevision=key)
-
     return fig, out_selected
 
 
@@ -1383,38 +1722,37 @@ def filter_data_tab2(df, data_type):
 
 @app.callback(
     Output('heatmap_graph', 'figure'),
-    [
-        Input('apply_filter_tab2', 'n_clicks')
-    ],
-    [
-        State('radius_slider_tab2', 'value'),
-        State('county_selector_tab2', 'value'),
-        State('data_type_selector_main_tab2', 'value'),
-        State('data_type_selector_vru_tab2', 'value'),
-        State('date_picker_tab2', 'start_date'),
-        State('date_picker_tab2', 'end_date'),
-        State('time_slider_tab2', 'value'),
-        State('day_of_week_checklist_tab2', 'value'),
-        State('gender_selector_tab2', 'value'),
-        State('weather_selector_tab2', 'value'),
-        State('light_selector_tab2', 'value'),
-        State('road_surface_selector_tab2', 'value')
-    ]
+    Input('apply_filter_tab2', 'n_clicks'),
+    State('radius_slider_tab2', 'value'),
+    State('county_selector_tab2', 'value'),
+    State('data_type_selector_main_tab2', 'value'),
+    State('data_type_selector_vru_tab2', 'value'),
+    State('severity_selector_tab2', 'value'),
+    State('date_picker_tab2', 'start_date'),
+    State('date_picker_tab2', 'end_date'),
+    State('time_slider_tab2', 'value'),
+    State('day_of_week_checklist_tab2', 'value'),
+    State('gender_selector_tab2', 'value'),
+    State('weather_selector_tab2', 'value'),
+    State('light_selector_tab2', 'value'),
+    State('road_surface_selector_tab2', 'value'),
+    State('crash_type_selector_tab2','value')
 )
-def update_heatmap_tab2(apply_n_clicks, radius_miles, counties_selected, main_data_type, vru_data_type,
-                        start_date, end_date, time_range, days_of_week,
-                        gender, weather, light, road_surface):
+def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
+                        main_data_type, vru_data_type,
+                        severity_category,
+                        start_date, end_date, time_range,
+                        days_of_week, gender, weather, light, road_surface, crash_type):
     zoom = 10
     default_center = {'lat': 40.7128, 'lon': -74.0060}
-    # use counties as key so changing counties resets view, otherwise persists
     key = 'tab2-' + '-'.join(sorted(counties_selected or []))
 
-    # before first click: show default
-    if not apply_n_clicks:
+    # BEFORE FIRST CLICK: show a blank‐centered “dot”
+    if not n_clicks:
         radius_px = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
         fig = px.density_mapbox(
-            pd.DataFrame({'Latitude': [default_center['lat']], 'Longitude': [default_center['lon']]}),
-            lat='Latitude', lon='Longitude',
+            pd.DataFrame(default_center, index=[0]),
+            lat='lat', lon='lon',
             radius=radius_px,
             center=default_center, zoom=zoom,
             mapbox_style="open-street-map", opacity=0.7
@@ -1422,12 +1760,14 @@ def update_heatmap_tab2(apply_n_clicks, radius_miles, counties_selected, main_da
         fig.update_layout(uirevision=key)
         return fig
 
+    # LOAD YOUR DATA
     df = get_county_data(counties_selected)
     if df.empty:
+        # same blank‐dot fallback
         radius_px = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
         fig = px.density_mapbox(
-            pd.DataFrame({'Latitude': [default_center['lat']], 'Longitude': [default_center['lon']]}),
-            lat='Latitude', lon='Longitude',
+            pd.DataFrame(default_center, index=[0]),
+            lat='lat', lon='lon',
             radius=radius_px,
             center=default_center, zoom=zoom,
             mapbox_style="open-street-map", opacity=0.7
@@ -1435,25 +1775,30 @@ def update_heatmap_tab2(apply_n_clicks, radius_miles, counties_selected, main_da
         fig.update_layout(uirevision=key)
         return fig
 
-    # apply same filters as tab1
+    # APPLY *exactly* the same filters as Tab1, *including* VRU sub‐type
     filtered = filter_data_tab1(
-        df, start_date, end_date, time_range,
+        df,
+        start_date, end_date, time_range,
         days_of_week, gender, weather, light, road_surface,
-        main_data_type, vru_data_type
+        severity_category, crash_type,
+        main_data_type, vru_data_type, 
     )
 
-    # determine center
-    if 'All' in counties_selected:
-        center_lat = df['Y_Coord'].mean()
-        center_lon = df['X_Coord'].mean()
+    # COMPUTE CENTER
+    if filtered.empty:
+        center_lat, center_lon = default_center.values()
+    elif 'All' in counties_selected:
+        center_lat, center_lon = df['Y_Coord'].mean(), df['X_Coord'].mean()
     else:
-        center_lat = sum(county_coordinates[c]['lat'] for c in counties_selected) / len(counties_selected)
-        center_lon = sum(county_coordinates[c]['lon'] for c in counties_selected) / len(counties_selected)
+        pts = [county_coordinates[c] for c in counties_selected]
+        center_lat = sum(p['lat'] for p in pts) / len(pts)
+        center_lon = sum(p['lon'] for p in pts) / len(pts)
 
-    # convert miles to pixels
+
+    # RE‐COMPUTE PIXEL RADIUS AT NEW CENTER
     radius_px = convert_miles_to_pixels(radius_miles, zoom, center_lat)
 
-    # build heatmap
+    # BUILD THE DENSITY MAP
     fig = px.density_mapbox(
         filtered,
         lat='Y_Coord', lon='X_Coord',
@@ -1471,11 +1816,9 @@ def update_heatmap_tab2(apply_n_clicks, radius_miles, counties_selected, main_da
             'RoadSurfac': True
         }
     )
-
-    # persist camera/zoom except when counties change
     fig.update_layout(uirevision=key)
-
     return fig
+
 
 
 # ----------------------------
@@ -1713,17 +2056,6 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
 
         fig = go.Figure([
             go.Choroplethmapbox(
-                geojson=json.loads(valid.to_json()),
-                locations=valid['id'],
-                z=valid['Prediction'],
-                colorscale='YlGnBu',
-                marker_opacity=0.6,
-                marker_line_width=1,
-                colorbar=dict(title="Prediction"),
-                featureidkey="properties.id",
-                name="Prediction"
-            ),
-            go.Choroplethmapbox(
                 geojson=json.loads(missing.to_json()),
                 locations=missing['id'],
                 z=[0]*len(missing),
@@ -1732,7 +2064,22 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
                 marker_line_width=1,
                 showscale=False,
                 featureidkey="properties.id",
-                name="Missing"
+                name="Missing",
+                hovertemplate="<extra></extra>" 
+            ),
+                go.Choroplethmapbox(
+                geojson=json.loads(valid.to_json()),
+                locations=valid['id'],
+                z=valid['Prediction'],
+                colorscale='YlGnBu',
+                marker_opacity=0.6,
+                marker_line_width=1,
+                colorbar=dict(title="Prediction"),
+                featureidkey="properties.id",
+                name="Prediction",
+                hovertemplate=
+                "<b>Tract %{location}</b><br>" +
+                "Predicted Crash Rate: %{z:.2f}<extra></extra>"
             )
         ])
 
@@ -1780,6 +2127,7 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
 
 
 @app.callback(
+    # Existing fields
     Output('input_DEMOGIDX_5', 'value'),
     Output('input_PEOPCOLORPCT', 'value'),
     Output('input_UNEMPPCT', 'value'),
@@ -1790,7 +2138,22 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
     Output('input_AADT', 'value'),
     Output('input_Commute_TripMiles_TripStart_avg', 'value'),
     Output('input_Commute_TripMiles_TripEnd_avg', 'value'),
-    # Inputs for modal population and all plus/minus buttons:
+    Output('input_ACSTOTPOP', 'value'),
+    Output('input_DEMOGIDX_2', 'value'),
+    Output('input_PovertyPop', 'value'),
+    Output('input_DISABILITYPCT', 'value'),
+    Output('input_BikingTrips(Start)', 'value'),
+    Output('input_BikingTrips(End)', 'value'),
+    Output('input_CarpoolTrips(Start)', 'value'),
+    Output('input_CarpoolTrips(End)', 'value'),
+    Output('input_CommercialFreightTrips(Start)', 'value'),
+    Output('input_CommercialFreightTrips(End)', 'value'),
+    Output('input_WalkingTrips(Start)', 'value'),
+    Output('input_WalkingTrips(End)', 'value'),
+    Output('input_PublicTransitTrips(Start)', 'value'),
+    Output('input_PublicTransitTrips(End)', 'value'),
+
+    # Inputs: selection + all plus/minus buttons
     Input('selected_census_tract', 'data'),
     Input('plus_input_DEMOGIDX_5', 'n_clicks'),
     Input('minus_input_DEMOGIDX_5', 'n_clicks'),
@@ -1812,7 +2175,36 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
     Input('minus_input_Commute_TripMiles_TripStart_avg', 'n_clicks'),
     Input('plus_input_Commute_TripMiles_TripEnd_avg', 'n_clicks'),
     Input('minus_input_Commute_TripMiles_TripEnd_avg', 'n_clicks'),
-    # State: editable GPkg and current field values
+    Input('plus_input_ACSTOTPOP', 'n_clicks'),
+    Input('minus_input_ACSTOTPOP', 'n_clicks'),
+    Input('plus_input_DEMOGIDX_2', 'n_clicks'),
+    Input('minus_input_DEMOGIDX_2', 'n_clicks'),
+    Input('plus_input_PovertyPop', 'n_clicks'),
+    Input('minus_input_PovertyPop', 'n_clicks'),
+    Input('plus_input_DISABILITYPCT', 'n_clicks'),
+    Input('minus_input_DISABILITYPCT', 'n_clicks'),
+    Input('plus_input_BikingTrips(Start)', 'n_clicks'),
+    Input('minus_input_BikingTrips(Start)', 'n_clicks'),
+    Input('plus_input_BikingTrips(End)', 'n_clicks'),
+    Input('minus_input_BikingTrips(End)', 'n_clicks'),
+    Input('plus_input_CarpoolTrips(Start)', 'n_clicks'),
+    Input('minus_input_CarpoolTrips(Start)', 'n_clicks'),
+    Input('plus_input_CarpoolTrips(End)', 'n_clicks'),
+    Input('minus_input_CarpoolTrips(End)', 'n_clicks'),
+    Input('plus_input_CommercialFreightTrips(Start)', 'n_clicks'),
+    Input('minus_input_CommercialFreightTrips(Start)', 'n_clicks'),
+    Input('plus_input_CommercialFreightTrips(End)', 'n_clicks'),
+    Input('minus_input_CommercialFreightTrips(End)', 'n_clicks'),
+    Input('plus_input_WalkingTrips(Start)', 'n_clicks'),
+    Input('minus_input_WalkingTrips(Start)', 'n_clicks'),
+    Input('plus_input_WalkingTrips(End)', 'n_clicks'),
+    Input('minus_input_WalkingTrips(End)', 'n_clicks'),
+    Input('plus_input_PublicTransitTrips(Start)', 'n_clicks'),
+    Input('minus_input_PublicTransitTrips(Start)', 'n_clicks'),
+    Input('plus_input_PublicTransitTrips(End)', 'n_clicks'),
+    Input('minus_input_PublicTransitTrips(End)', 'n_clicks'),
+
+    # States: gpkg path and current values
     State('editable_gpkg_path', 'data'),
     State('input_DEMOGIDX_5', 'value'),
     State('input_PEOPCOLORPCT', 'value'),
@@ -1823,115 +2215,251 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
     State('input_pct_commercial', 'value'),
     State('input_AADT', 'value'),
     State('input_Commute_TripMiles_TripStart_avg', 'value'),
-    State('input_Commute_TripMiles_TripEnd_avg', 'value')
+    State('input_Commute_TripMiles_TripEnd_avg', 'value'),
+    State('input_ACSTOTPOP', 'value'),
+    State('input_DEMOGIDX_2', 'value'),
+    State('input_PovertyPop', 'value'),
+    State('input_DISABILITYPCT', 'value'),
+    State('input_BikingTrips(Start)', 'value'),
+    State('input_BikingTrips(End)', 'value'),
+    State('input_CarpoolTrips(Start)', 'value'),
+    State('input_CarpoolTrips(End)', 'value'),
+    State('input_CommercialFreightTrips(Start)', 'value'),
+    State('input_CommercialFreightTrips(End)', 'value'),
+    State('input_WalkingTrips(Start)', 'value'),
+    State('input_WalkingTrips(End)', 'value'),
+    State('input_PublicTransitTrips(Start)', 'value'),
+    State('input_PublicTransitTrips(End)', 'value'),
 )
-def update_modal_values(selected_tract,
-                        plus_demog, minus_demog,
-                        plus_peop, minus_peop,
-                        plus_unemp, minus_unemp,
-                        plus_res, minus_res,
-                        plus_ind, minus_ind,
-                        plus_retail, minus_retail,
-                        plus_commercial, minus_commercial,
-                        plus_aadt, minus_aadt,
-                        plus_commute_start, minus_commute_start,
-                        plus_commute_end, minus_commute_end,
-                        gpkg_path,
-                        cur_demog, cur_peop, cur_unemp, cur_res,
-                        cur_ind, cur_retail, cur_commercial,
-                        cur_aadt, cur_commute_start, cur_commute_end):
+def update_modal_values(
+    selected_tract,
+    plus_demog, minus_demog,
+    plus_peop, minus_peop,
+    plus_unemp, minus_unemp,
+    plus_res, minus_res,
+    plus_ind, minus_ind,
+    plus_retail, minus_retail,
+    plus_comm, minus_comm,
+    plus_aadt, minus_aadt,
+    plus_c_start, minus_c_start,
+    plus_c_end, minus_c_end,
+    plus_acstot, minus_acstot,
+    plus_demog2, minus_demog2,
+    plus_pov, minus_pov,
+    plus_dis, minus_dis,
+    plus_bike_s, minus_bike_s,
+    plus_bike_e, minus_bike_e,
+    plus_carp_s, minus_carp_s,
+    plus_carp_e, minus_carp_e,
+    plus_fre_s, minus_fre_s,
+    plus_fre_e, minus_fre_e,
+    plus_walk_s, minus_walk_s,
+    plus_walk_e, minus_walk_e,
+    plus_pt_s, minus_pt_s,
+    plus_pt_e, minus_pt_e,
+    gpkg_path,
+    cur_demog, cur_peop, cur_unemp, cur_res, cur_ind, cur_retail, cur_comm,
+    cur_aadt, cur_c_start, cur_c_end,
+    cur_acstot, cur_demog2, cur_pov, cur_dis,
+    cur_bike_s, cur_bike_e,
+    cur_carp_s, cur_carp_e,
+    cur_fre_s, cur_fre_e,
+    cur_walk_s, cur_walk_e,
+    cur_pt_s, cur_pt_e
+):
     def clean(v):
         return None if pd.isna(v) else round(v, 2)
+
     ctx = callback_context
     if not ctx.triggered:
         raise PreventUpdate
+    trig = ctx.triggered[0]['prop_id']
 
-    triggered_prop = ctx.triggered[0]['prop_id']
-
-    # If the census tract was selected, load new values from the GPkg:
-    if triggered_prop.startswith('selected_census_tract'):
+    # On new tract selection, load all values
+    if trig.startswith('selected_census_tract'):
         if not selected_tract or not gpkg_path:
             raise PreventUpdate
-        try:
-            gdf = gpd.read_file(gpkg_path)
-            row = gdf[gdf['id'] == selected_tract]
-            if row.empty:
-                raise PreventUpdate
-            row = row.iloc[0]
-            return (
-                clean(row.get('DEMOGIDX_5')),
-                clean(row.get('PEOPCOLORPCT')),
-                clean(row.get('UNEMPPCT')),
-                clean(row.get('pct_residential')),
-                clean(row.get('pct_industrial')),
-                clean(row.get('pct_retail')),
-                clean(row.get('pct_commercial')),
-                clean(row.get('AADT')),
-                clean(row.get('AvgCommuteMiles(Start)')),
-                clean(row.get('AvgCommuteMiles(End)')),
-            )
-        except Exception as e:
-            logger.error(f"Error populating modal: {e}")
+        gdf = gpd.read_file(gpkg_path)
+        row = gdf[gdf['id'] == selected_tract]
+        if row.empty:
             raise PreventUpdate
+        row = row.iloc[0]
+        return (
+            clean(row.get('DEMOGIDX_5')),
+            clean(row.get('PEOPCOLORPCT')),
+            clean(row.get('UNEMPPCT')),
+            clean(row.get('pct_residential')),
+            clean(row.get('pct_industrial')),
+            clean(row.get('pct_retail')),
+            clean(row.get('pct_commercial')),
+            clean(row.get('AADT')),
+            clean(row.get('AvgCommuteMiles(Start)')),
+            clean(row.get('AvgCommuteMiles(End)')),
+            clean(row.get('ACSTOTPOP')),
+            clean(row.get('DEMOGIDX_2')),
+            clean(row.get('PovertyPop')),
+            clean(row.get('DISABILITYPCT')),
+            clean(row.get('BikingTrips(Start)')),
+            clean(row.get('BikingTrips(End)')),
+            clean(row.get('CarpoolTrips(Start)')),
+            clean(row.get('CarpoolTrips(End)')),
+            clean(row.get('CommercialFreightTrips(Start)')),
+            clean(row.get('CommercialFreightTrips(End)')),
+            clean(row.get('WalkingTrips(Start)')),
+            clean(row.get('WalkingTrips(End)')),
+            clean(row.get('PublicTransitTrips(Start)')),
+            clean(row.get('PublicTransitTrips(End)')),
+        )
 
-    # Otherwise, if a plus/minus button was clicked, update the corresponding field:
-    # Start with current values (or 0 if None)
-    new_demog = (cur_demog or 0)
-    new_peop = (cur_peop or 0)
-    new_unemp = (cur_unemp or 0)
-    new_res = (cur_res or 0)
-    new_ind = (cur_ind or 0)
-    new_retail = (cur_retail or 0)
-    new_commercial = (cur_commercial or 0)
-    new_aadt = (cur_aadt or 0)
-    new_commute_start = (cur_commute_start or 0)
-    new_commute_end = (cur_commute_end or 0)
+    # Otherwise adjust plus/minus
+    new_demog      = cur_demog      or 0
+    new_peop       = cur_peop       or 0
+    new_unemp      = cur_unemp      or 0
+    new_res        = cur_res        or 0
+    new_ind        = cur_ind        or 0
+    new_retail     = cur_retail     or 0
+    new_comm       = cur_comm       or 0
+    new_aadt       = cur_aadt       or 0
+    new_c_start    = cur_c_start    or 0
+    new_c_end      = cur_c_end      or 0
+    new_acstot     = cur_acstot     or 0
+    new_demog2     = cur_demog2     or 0
+    new_pov        = cur_pov        or 0
+    new_dis        = cur_dis        or 0
+    new_bike_s     = cur_bike_s     or 0
+    new_bike_e     = cur_bike_e     or 0
+    new_carp_s     = cur_carp_s     or 0
+    new_carp_e     = cur_carp_e     or 0
+    new_fre_s      = cur_fre_s      or 0
+    new_fre_e      = cur_fre_e      or 0
+    new_walk_s     = cur_walk_s     or 0
+    new_walk_e     = cur_walk_e     or 0
+    new_pt_s       = cur_pt_s       or 0
+    new_pt_e       = cur_pt_e       or 0
 
-    if triggered_prop.startswith('plus_input_DEMOGIDX_5'):
+    if trig.startswith('plus_input_DEMOGIDX_5'):
         new_demog += 0.1
-    elif triggered_prop.startswith('minus_input_DEMOGIDX_5'):
+    elif trig.startswith('minus_input_DEMOGIDX_5'):
         new_demog -= 0.1
-    elif triggered_prop.startswith('plus_input_PEOPCOLORPCT'):
+    elif trig.startswith('plus_input_PEOPCOLORPCT'):
         new_peop += 0.1
-    elif triggered_prop.startswith('minus_input_PEOPCOLORPCT'):
+    elif trig.startswith('minus_input_PEOPCOLORPCT'):
         new_peop -= 0.1
-    elif triggered_prop.startswith('plus_input_UNEMPPCT'):
+    elif trig.startswith('plus_input_UNEMPPCT'):
         new_unemp += 0.1
-    elif triggered_prop.startswith('minus_input_UNEMPPCT'):
+    elif trig.startswith('minus_input_UNEMPPCT'):
         new_unemp -= 0.1
-    elif triggered_prop.startswith('plus_input_pct_residential'):
+    elif trig.startswith('plus_input_pct_residential'):
         new_res += 0.1
-    elif triggered_prop.startswith('minus_input_pct_residential'):
+    elif trig.startswith('minus_input_pct_residential'):
         new_res -= 0.1
-    elif triggered_prop.startswith('plus_input_pct_industrial'):
+    elif trig.startswith('plus_input_pct_industrial'):
         new_ind += 0.1
-    elif triggered_prop.startswith('minus_input_pct_industrial'):
+    elif trig.startswith('minus_input_pct_industrial'):
         new_ind -= 0.1
-    elif triggered_prop.startswith('plus_input_pct_retail'):
+    elif trig.startswith('plus_input_pct_retail'):
         new_retail += 0.1
-    elif triggered_prop.startswith('minus_input_pct_retail'):
+    elif trig.startswith('minus_input_pct_retail'):
         new_retail -= 0.1
-    elif triggered_prop.startswith('plus_input_pct_commercial'):
-        new_commercial += 0.1
-    elif triggered_prop.startswith('minus_input_pct_commercial'):
-        new_commercial -= 0.1
-    elif triggered_prop.startswith('plus_input_AADT'):
-        new_aadt += 0.1
-    elif triggered_prop.startswith('minus_input_AADT'):
-        new_aadt -= 0.1
-    elif triggered_prop.startswith('plus_input_Commute_TripMiles_TripStart_avg'):
-        new_commute_start += 0.1
-    elif triggered_prop.startswith('minus_input_Commute_TripMiles_TripStart_avg'):
-        new_commute_start -= 0.1
-    elif triggered_prop.startswith('plus_input_Commute_TripMiles_TripEnd_avg'):
-        new_commute_end += 0.1
-    elif triggered_prop.startswith('minus_input_Commute_TripMiles_TripEnd_avg'):
-        new_commute_end -= 0.1
+    elif trig.startswith('plus_input_pct_commercial'):
+        new_comm += 0.1
+    elif trig.startswith('minus_input_pct_commercial'):
+        new_comm -= 0.1
+    elif trig.startswith('plus_input_AADT'):
+        new_aadt += 1
+    elif trig.startswith('minus_input_AADT'):
+        new_aadt -= 1
+    elif trig.startswith('plus_input_Commute_TripMiles_TripStart_avg'):
+        new_c_start += 0.1
+    elif trig.startswith('minus_input_Commute_TripMiles_TripStart_avg'):
+        new_c_start -= 0.1
+    elif trig.startswith('plus_input_Commute_TripMiles_TripEnd_avg'):
+        new_c_end += 0.1
+    elif trig.startswith('minus_input_Commute_TripMiles_TripEnd_avg'):
+        new_c_end -= 0.1
+    elif trig.startswith('plus_input_ACSTOTPOP'):
+        new_acstot += 1
+    elif trig.startswith('minus_input_ACSTOTPOP'):
+        new_acstot -= 1
+    elif trig.startswith('plus_input_DEMOGIDX_2'):
+        new_demog2 += 0.1
+    elif trig.startswith('minus_input_DEMOGIDX_2'):
+        new_demog2 -= 0.1
+    elif trig.startswith('plus_input_PovertyPop'):
+        new_pov += 1
+    elif trig.startswith('minus_input_PovertyPop'):
+        new_pov -= 1
+    elif trig.startswith('plus_input_DISABILITYPCT'):
+        new_dis += 0.1
+    elif trig.startswith('minus_input_DISABILITYPCT'):
+        new_dis -= 0.1
+    elif trig.startswith('plus_input_BikingTrips(Start)'):
+        new_bike_s += 1
+    elif trig.startswith('minus_input_BikingTrips(Start)'):
+        new_bike_s -= 1
+    elif trig.startswith('plus_input_BikingTrips(End)'):
+        new_bike_e += 1
+    elif trig.startswith('minus_input_BikingTrips(End)'):
+        new_bike_e -= 1
+    elif trig.startswith('plus_input_CarpoolTrips(Start)'):
+        new_carp_s += 1
+    elif trig.startswith('minus_input_CarpoolTrips(Start)'):
+        new_carp_s -= 1
+    elif trig.startswith('plus_input_CarpoolTrips(End)'):
+        new_carp_e += 1
+    elif trig.startswith('minus_input_CarpoolTrips(End)'):
+        new_carp_e -= 1
+    elif trig.startswith('plus_input_CommercialFreightTrips(Start)'):
+        new_fre_s += 1
+    elif trig.startswith('minus_input_CommercialFreightTrips(Start)'):
+        new_fre_s -= 1
+    elif trig.startswith('plus_input_CommercialFreightTrips(End)'):
+        new_fre_e += 1
+    elif trig.startswith('minus_input_CommercialFreightTrips(End)'):
+        new_fre_e -= 1
+    elif trig.startswith('plus_input_WalkingTrips(Start)'):
+        new_walk_s += 1
+    elif trig.startswith('minus_input_WalkingTrips(Start)'):
+        new_walk_s -= 1
+    elif trig.startswith('plus_input_WalkingTrips(End)'):
+        new_walk_e += 1
+    elif trig.startswith('minus_input_WalkingTrips(End)'):
+        new_walk_e -= 1
+    elif trig.startswith('plus_input_PublicTransitTrips(Start)'):
+        new_pt_s += 1
+    elif trig.startswith('minus_input_PublicTransitTrips(Start)'):
+        new_pt_s -= 1
+    elif trig.startswith('plus_input_PublicTransitTrips(End)'):
+        new_pt_e += 1
+    elif trig.startswith('minus_input_PublicTransitTrips(End)'):
+        new_pt_e -= 1
 
-    return (round(new_demog, 2), round(new_peop, 2), round(new_unemp, 2), round(new_res, 2), round(new_ind, 2),
-            round(new_retail, 2), round(new_commercial, 2), round(new_aadt, 2),
-            round(new_commute_start, 2), round(new_commute_end, 2))
-
+    return (
+        round(new_demog, 2),
+        round(new_peop, 2),
+        round(new_unemp, 2),
+        round(new_res, 2),
+        round(new_ind, 2),
+        round(new_retail, 2),
+        round(new_comm, 2),
+        round(new_aadt, 2),
+        round(new_c_start, 2),
+        round(new_c_end, 2),
+        round(new_acstot, 2),
+        round(new_demog2, 2),
+        round(new_pov, 2),
+        round(new_dis, 2),
+        round(new_bike_s, 2),
+        round(new_bike_e, 2),
+        round(new_carp_s, 2),
+        round(new_carp_e, 2),
+        round(new_fre_s, 2),
+        round(new_fre_e, 2),
+        round(new_walk_s, 2),
+        round(new_walk_e, 2),
+        round(new_pt_s, 2),
+        round(new_pt_e, 2),
+    )
 
     
 @app.callback(
@@ -1953,8 +2481,6 @@ def update_county_options(n_clicks):
     except Exception as e:
         logger.error(f"Error updating county selector options: {e}")
         return []
-
-
 
 @app.callback(
     Output('selected_census_tract', 'data'),
@@ -2024,31 +2550,46 @@ def reset_predictions(n_clicks, editable_gpkg_path, current_refresh):
 
 
 
-# ----------------------------------------------------------------
-# 8.x. Callback to handle county‐selection, data‐editing, apply/reset predictions
+# Callback to handle county‐selection, data‐editing, apply/reset predictions
 @app.callback(
     Output('editable_gpkg_path', 'data'),
     Output('predictions_refresh', 'data'),
     [
-        Input('county_selector_tab4', 'value'),
-        Input('apply_updated_data',    'n_clicks'),
-        Input('reset_predictions',     'n_clicks'),
-        Input('model_selector_tab4',   'value'),
+        Input('county_selector_tab4',     'value'),
+        Input('apply_updated_data',       'n_clicks'),
+        Input('reset_predictions',        'n_clicks'),
+        Input('model_selector_tab4',      'value'),
     ],
     [
-        State('selected_census_tract',                'data'),
-        State('editable_gpkg_path',                   'data'),
-        State('input_DEMOGIDX_5',                     'value'),
-        State('input_PEOPCOLORPCT',                   'value'),
-        State('input_UNEMPPCT',                       'value'),
-        State('input_pct_residential',                'value'),
-        State('input_pct_industrial',                 'value'),
-        State('input_pct_retail',                     'value'),
-        State('input_pct_commercial',                 'value'),
-        State('input_AADT',                           'value'),
-        State('input_Commute_TripMiles_TripStart_avg','value'),
-        State('input_Commute_TripMiles_TripEnd_avg',  'value'),
-        State('predictions_refresh',                  'data')
+        State('selected_census_tract',                   'data'),
+        State('editable_gpkg_path',                      'data'),
+        # existing fields
+        State('input_DEMOGIDX_5',                        'value'),
+        State('input_PEOPCOLORPCT',                      'value'),
+        State('input_UNEMPPCT',                          'value'),
+        State('input_pct_residential',                   'value'),
+        State('input_pct_industrial',                    'value'),
+        State('input_pct_retail',                        'value'),
+        State('input_pct_commercial',                    'value'),
+        State('input_AADT',                              'value'),
+        State('input_Commute_TripMiles_TripStart_avg',   'value'),
+        State('input_Commute_TripMiles_TripEnd_avg',     'value'),
+        # ───────── NEW STATES ─────────
+        State('input_ACSTOTPOP',                         'value'),
+        State('input_DEMOGIDX_2',                        'value'),
+        State('input_PovertyPop',                        'value'),
+        State('input_DISABILITYPCT',                     'value'),
+        State('input_BikingTrips(Start)',                'value'),
+        State('input_BikingTrips(End)',                  'value'),
+        State('input_CarpoolTrips(Start)',               'value'),
+        State('input_CarpoolTrips(End)',                 'value'),
+        State('input_CommercialFreightTrips(Start)',     'value'),
+        State('input_CommercialFreightTrips(End)',       'value'),
+        State('input_WalkingTrips(Start)',               'value'),
+        State('input_WalkingTrips(End)',                 'value'),
+        State('input_PublicTransitTrips(Start)',         'value'),
+        State('input_PublicTransitTrips(End)',           'value'),
+        State('predictions_refresh',                     'data'),
     ]
 )
 def update_editable_gpkg_and_predictions(
@@ -2058,9 +2599,30 @@ def update_editable_gpkg_and_predictions(
     model_file,
     selected_tract,
     gpkg_path,
-    demogidx, peopcolorpct, unemppct,
-    pct_residential, pct_industrial, pct_retail, pct_commercial,
-    aadt, commute_start, commute_end,
+    demogidx_5,
+    peopcolorpct,
+    unemppct,
+    pct_residential,
+    pct_industrial,
+    pct_retail,
+    pct_commercial,
+    aadt,
+    commute_start,
+    commute_end,
+    acstotpop,
+    demogidx_2,
+    poverty_pop,
+    disabilitypct,
+    biking_start,
+    biking_end,
+    carpool_start,
+    carpool_end,
+    freight_start,
+    freight_end,
+    walking_start,
+    walking_end,
+    transit_start,
+    transit_end,
     current_refresh
 ):
     ctx = dash.callback_context
@@ -2068,99 +2630,87 @@ def update_editable_gpkg_and_predictions(
         raise PreventUpdate
     triggered = ctx.triggered[0]['prop_id'].split('.')[0]
 
-    # 1) User just picked a county → create new editable GPKG
+    # 1) New county selected → create an editable GPKG
     if triggered == 'county_selector_tab4':
         if county_selector_value and len(county_selector_value) == 1:
-            county = county_selector_value[0]
-            new_file = copy_county_gpkg(county)
-            return new_file, current_refresh
+            return copy_county_gpkg(county_selector_value[0]), current_refresh
         else:
             raise PreventUpdate
 
-    # 2) User clicked “Apply Updated Data”
+    # 2) Apply updates to the tract and re‐run the model
     elif triggered == 'apply_updated_data':
         if apply_n_clicks and selected_tract and gpkg_path:
-            # load, update the tract, save
             gdf = gpd.read_file(gpkg_path)
             idx = gdf[gdf['id'] == selected_tract].index
             if idx.empty:
                 raise PreventUpdate
-            # set each field
-            gdf.loc[idx, 'DEMOGIDX_5']  = demogidx
-            gdf.loc[idx, 'PEOPCOLORPCT'] = peopcolorpct
-            gdf.loc[idx, 'UNEMPPCT']    = unemppct
-            gdf.loc[idx, 'pct_residential'] = pct_residential
-            gdf.loc[idx, 'pct_industrial']  = pct_industrial
-            gdf.loc[idx, 'pct_retail']      = pct_retail
-            gdf.loc[idx, 'pct_commercial']  = pct_commercial
-            gdf.loc[idx, 'AADT']            = aadt
-            gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = commute_start
-            gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg']   = commute_end
+
+            # ─── Existing fields ───
+            gdf.loc[idx, 'DEMOGIDX_5']                         = demogidx_5
+            gdf.loc[idx, 'PEOPCOLORPCT']                       = peopcolorpct
+            gdf.loc[idx, 'UNEMPPCT']                           = unemppct
+            gdf.loc[idx, 'pct_residential']                    = pct_residential
+            gdf.loc[idx, 'pct_industrial']                     = pct_industrial
+            gdf.loc[idx, 'pct_retail']                         = pct_retail
+            gdf.loc[idx, 'pct_commercial']                     = pct_commercial
+            gdf.loc[idx, 'AADT']                               = aadt
+            gdf.loc[idx, 'Commute_TripMiles_TripStart_avg']    = commute_start
+            gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg']      = commute_end
+
+            # ─── NEW fields ───
+            gdf.loc[idx, 'ACSTOTPOP']                          = acstotpop
+            gdf.loc[idx, 'DEMOGIDX_2']                         = demogidx_2
+            gdf.loc[idx, 'PovertyPop']                         = poverty_pop
+            gdf.loc[idx, 'DISABILITYPCT']                      = disabilitypct
+            gdf.loc[idx, 'BikingTrips(Start)']                 = biking_start
+            gdf.loc[idx, 'BikingTrips(End)']                   = biking_end
+            gdf.loc[idx, 'CarpoolTrips(Start)']                = carpool_start
+            gdf.loc[idx, 'CarpoolTrips(End)']                  = carpool_end
+            gdf.loc[idx, 'CommercialFreightTrips(Start)']      = freight_start
+            gdf.loc[idx, 'CommercialFreightTrips(End)']        = freight_end
+            gdf.loc[idx, 'WalkingTrips(Start)']                = walking_start
+            gdf.loc[idx, 'WalkingTrips(End)']                  = walking_end
+            gdf.loc[idx, 'PublicTransitTrips(Start)']          = transit_start
+            gdf.loc[idx, 'PublicTransitTrips(End)']            = transit_end
+
+            # overwrite the editable GPKG
             gdf.to_file(gpkg_path, driver="GPKG")
-            import sys
+
+            # re‐run the selected model script
+            import sys, subprocess
             base, ext = os.path.splitext(gpkg_path)
-            if model_file == 'AI2.py':
-                suffix = '_with_gwr_predictions'
-            else:
-                suffix = '_with_predictions'
+            suffix = '_with_gwr_predictions' if model_file == 'AI2.py' else '_with_predictions'
             output_file = f"{base}{suffix}{ext}"
-
-            # build the command using the same Python interpreter
-            cmd = [
-                sys.executable,
-                model_file,
-                gpkg_path,
-                output_file
-            ]
-            logger.debug(f"Running prediction command: {cmd}")
-
             try:
-                proc = subprocess.run(
-                    cmd,
-                    check=True,
-                    capture_output=True,
-                    text=True
+                subprocess.run(
+                    [sys.executable, model_file, gpkg_path, output_file],
+                    check=True, capture_output=True, text=True
                 )
-                logger.debug(f"{model_file} stdout:\n{proc.stdout}")
-                logger.debug(f"{model_file} stderr:\n{proc.stderr}")
-            except subprocess.CalledProcessError as e:
-                # this will show you exactly what went wrong inside AI2.py
-                logger.error(f"{model_file} failed with exit code {e.returncode}")
-                logger.error(f"--- {model_file} stdout:\n{e.stdout}")
-                logger.error(f"--- {model_file} stderr:\n{e.stderr}")
-                # don’t let the app crash, but also don’t update the map
+            except subprocess.CalledProcessError:
                 raise PreventUpdate
 
-            # if we get here, the script ran successfully
-            new_refresh = (current_refresh or 0) + 1
-            return gpkg_path, new_refresh
+            return gpkg_path, (current_refresh or 0) + 1
 
         else:
             raise PreventUpdate
 
-    # 3) User clicked “Reset Predictions” → delete editable+pred files & remake
+    # 3) Reset: delete editable & predictions files, re‐copy county
     elif triggered == 'reset_predictions':
         if reset_n_clicks:
-            # remove the old editable gpkg
             if gpkg_path and os.path.exists(gpkg_path):
                 os.remove(gpkg_path)
-            # remove its predictions
             base, ext = os.path.splitext(gpkg_path or '')
-            if model_file == 'AI2.py':
-                suffix = '_with_gwr_predictions'
-            else:
-                suffix = '_with_predictions'
+            suffix = '_with_gwr_predictions' if model_file == 'AI2.py' else '_with_predictions'
             pred_file = f"{base}{suffix}{ext}"
             if os.path.exists(pred_file):
                 os.remove(pred_file)
 
-            # re-copy the original for the currently selected county
-            if county_selector_value and len(county_selector_value) == 1:
-                new_file = copy_county_gpkg(county_selector_value[0])
-            else:
-                new_file = None
-
-            return new_file, (current_refresh or 0) + 1
+            new_path = (
+                copy_county_gpkg(county_selector_value[0])
+                if county_selector_value and len(county_selector_value)==1 else
+                None
+            )
+            return new_path, (current_refresh or 0) + 1
         else:
             raise PreventUpdate
 
@@ -2202,7 +2752,6 @@ def store_original_prediction(tract_id, model_file, gpkg_path):
 
     return gdf.loc[gdf['id'] == tract_id, col].iloc[0]
 
-# ----------------------------------------------------------------
 # Single callback to drive the prediction bar for both ForestISO and GWR
 @app.callback(
     Output('prediction_bar', 'children'),
@@ -2268,7 +2817,7 @@ if __name__ == '__main__':
     # ----------------------------
     data_folder = 'data'
     data_final_file = os.path.join(data_folder, 'Data_Final.csv')  # Data_Final.csv path
-    census_data_file = os.path.join(data_folder, 'TractData.gpkg')  # GeoPackage file for Census Data
+    census_data_file = os.path.join(data_folder, 'TractData.gpkg')  # GeSoPackage file for Census Data
 
     # ----------------------------
     # 8.2. Load Data and Define Counties
@@ -2282,6 +2831,7 @@ if __name__ == '__main__':
     unique_weather = sorted(data_final_df['WeatherCon'].dropna().unique().tolist())
     unique_light = sorted(data_final_df['LightCon'].dropna().unique().tolist())
     unique_road = sorted(data_final_df['RoadSurfac'].dropna().unique().tolist())
+    unique_crash_types = sorted(data_final_df['Crash_Type'].dropna().unique().tolist())
 
     logger.debug(f"Unique Weather Conditions: {unique_weather}")
     logger.debug(f"Unique Light Conditions: {unique_light}")

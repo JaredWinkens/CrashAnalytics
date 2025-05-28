@@ -2921,5 +2921,6 @@ if __name__ == '__main__':
     globals()['census_polygons_by_county'] = census_polygons_by_county
     globals()['data_by_county'] = data_by_county
     print("Finished loading webapp.")
+    print("127.0.0.1:8050")
 
-    app.run_server(debug=True)
+    app.run(debug=True)

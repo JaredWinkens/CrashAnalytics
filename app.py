@@ -1,5 +1,7 @@
 import dash
-from dash import dcc, html, Input, Output, State, callback_context
+from dash import dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL
+import chatbot
+import datetime
 import plotly.express as px
 import plotly.graph_objects as go  
 import pandas as pd
@@ -13,6 +15,9 @@ import geopandas as gpd
 import math
 import json
 import subprocess
+# Import your layout components
+from chatbot_layout import load_chatbot_layout, render_message_bubble
+from chatbot import generate_response
 
 DEFAULT_PRED_FILES = {
     'AI.py':  './AI/Large_DataSet2.25_with_predictions.gpkg',
@@ -309,7 +314,7 @@ def load_census_data(file_path):
 # ----------------------------
 # 3. Initialize Dash App
 # ----------------------------
-app = dash.Dash(__name__, suppress_callback_exceptions=True)
+app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=['https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css'])
 app.title = 'Crash Data Analytics'
 server = app.server
 
@@ -676,7 +681,8 @@ app.layout = html.Div([
         dcc.Tab(label='Data Downloader', value='tab-1'),
         dcc.Tab(label='Heatmap', value='tab-2'),
         dcc.Tab(label='Census Data', value='tab-3'),
-        dcc.Tab(label='Predictions', value='tab-4')
+        dcc.Tab(label='Predictions', value='tab-4'),
+        dcc.Tab(label='ChatBot', value='tab-5'),
     ], style={'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'zIndex': '1000'}),
 
     # Header Section
@@ -969,6 +975,14 @@ def get_county_data(counties_selected):
         return combined_df
     else:
         return pd.DataFrame()
+    
+chat_history = [    
+    {"sender": "bot", "message": "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
+        "**Example Prompts**\n\n" \
+        "- Can you summarize the accident data from 2020, focusing on common causes?\n\n" \
+        "- Show me the top 5 cities with the highest number of accidents in 2021, along with their count.\n\n" \
+        "- What was the percentage distribution of men and women involved in accidents in 2021?\n\n"},
+]
 
 # Callback to render content based on selected tab
 @app.callback(Output('tabs-content', 'children'), Input('tabs', 'value'))
@@ -1023,9 +1037,6 @@ def render_content(tab):
                 )
             ]
         )
-
-
-
 
     elif tab == 'tab-2':
         return html.Div([
@@ -1105,7 +1116,6 @@ def render_content(tab):
                 className='responsive-graph'
             )
         ], className='desktop-layout')
-
 
     elif tab == 'tab-3':
         return html.Div([
@@ -1428,6 +1438,107 @@ def render_content(tab):
                 )
             ], className='responsive-graph'),
         ], className='desktop-layout')
+    
+    elif tab == 'tab-5': # Chatbot Tab
+        return load_chatbot_layout(chat_history)
+    
+# --- Python Callback 1: Handle User Input and Display Immediately (with loading placeholder) ---
+@app.callback(
+    Output('user-input', 'value'),
+    Output('chat-history-store', 'data', allow_duplicate=True),
+    Output('scroll-trigger', 'data', allow_duplicate=True),
+    Output('user-question-for-bot', 'data'),
+    Input('send-button', 'n_clicks'),
+    State('user-input', 'value'),
+    State('chat-history-store', 'data'),
+    State('scroll-trigger', 'data'),
+    prevent_initial_call=True
+)
+def handle_user_input(send_button_clicks, user_question, current_chat_data, current_scroll_trigger):
+    if not user_question or user_question.strip() == "":
+        raise dash.exceptions.PreventUpdate
+
+    # Append user message
+    msg = {"sender": "user", "message": user_question}
+    current_chat_data.append(msg)
+    chat_history.append(msg)
+
+    # Append temporary loading message
+    loading_msg = {"sender": "bot", "message": "Thinking..."}
+    current_chat_data.append(loading_msg)
+
+    new_scroll_trigger = current_scroll_trigger + 1
+
+    return (
+        '',
+        current_chat_data, 
+        new_scroll_trigger, 
+        {
+            "question": user_question,
+            "timestamp": datetime.datetime.now().isoformat(),
+        }
+    )
+
+# --- Python Callback 2: Generate Bot Response (updates the specific bot message) ---
+@app.callback(
+    Output('chat-history-store', 'data', allow_duplicate=True),
+    Output('scroll-trigger', 'data', allow_duplicate=True),    
+    Input('user-question-for-bot', 'data'),
+    State('chat-history-store', 'data'),
+    State('scroll-trigger', 'data'),
+    prevent_initial_call=True
+)
+def generate_and_display_bot_response(user_question_data, current_chat_data, current_scroll_trigger):
+    if user_question_data is None:
+        raise dash.exceptions.PreventUpdate
+
+    user_question = user_question_data["question"]
+
+    bot_response_message_content = generate_response(user_question)
+    
+    # Remove loading message
+    current_chat_data.pop()
+
+    msg = {"sender": "bot", "message": bot_response_message_content}
+    current_chat_data.append(msg)
+    chat_history.append(msg)
+    new_scroll_trigger = current_scroll_trigger + 1
+
+    return current_chat_data, new_scroll_trigger
+
+# --- Python Callback 3: Update Chat History Display and Scroll after all data is in chat-history-store ---
+@app.callback(
+    Output('chat-history-container', 'children', allow_duplicate=True),
+    Output('chat-history-store', 'data', allow_duplicate=True),
+    Output('scroll-trigger', 'data', allow_duplicate=True),
+    Input('chat-history-store', 'data'), # Listen to changes in the history store
+    prevent_initial_call='initial_duplicate'
+)
+def update_chat_display(stored_chat_data):
+    if stored_chat_data is None:
+        raise dash.exceptions.PreventUpdate
+
+    rendered_history_elements = [render_message_bubble(msg['sender'], msg['message']) for msg in stored_chat_data]
+    rendered_history_elements.append(html.Div(id='chat-end-marker'))
+    return rendered_history_elements, stored_chat_data, 0
+
+# --- Clientside Callback for Auto-Scrolling ---
+clientside_callback(
+    """
+    function(data) {
+        // This function is triggered by the 'scroll-trigger' data change
+        // It needs to be robust, so it only attempts to scroll if the marker exists.
+        const marker = document.getElementById('chat-end-marker');
+        if (marker) {
+            marker.scrollIntoView({ behavior: 'smooth' }); // 'smooth' for animated scroll
+        }
+        return window.dash_clientside.no_update; // Don't update any Dash output
+    }
+    """,
+    Output('scroll-trigger', 'data', allow_duplicate=True), # Dummy output to trigger the clientside callback
+    Input('scroll-trigger', 'data'),   # Input is the data from our Python callback
+    prevent_initial_call=True, # Prevent scrolling on initial page load from this callback
+)
 
 @app.callback(
     Output('data_type_vru_options_tab1', 'style'),

@@ -1,0 +1,51 @@
+/* assets/style.css */
+
+/* General styles for the markdown content within bot messages */
+.dash-markdown-container p {
+    margin-bottom: 5px; /* Adjust spacing between paragraphs in markdown */
+    color: #E0E0E0; /* Ensure text color is consistent */
+}
+
+/* Bold text */
+.dash-markdown-container strong {
+    color: #00BFFF; /* A contrasting color for bold text, or whatever you like */
+    font-weight: bold;
+}
+
+/* Italic text */
+.dash-markdown-container em {
+    color: #8BC34A; /* Another color for italics */
+    font-style: italic;
+}
+
+/* Code blocks */
+.dash-markdown-container pre {
+    background-color: #1a1a1a; /* Darker background for code blocks */
+    border: 1px solid #555;
+    padding: 10px;
+    border-radius: 5px;
+    overflow-x: auto;
+    color: #f8f8f2; /* Light text for code */
+}
+
+/* Inline code */
+.dash-markdown-container code {
+    background-color: #333;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    color: #FFD700; /* Gold for inline code */
+}
+
+/* Lists */
+.dash-markdown-container ul,
+.dash-markdown-container ol {
+    margin-left: 20px;
+    margin-bottom: 10px;
+}
+
+/* Links (if any) */
+.dash-markdown-container a {
+    color: #337AB7;
+    text-decoration: underline;
+}

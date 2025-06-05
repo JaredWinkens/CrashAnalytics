@@ -981,7 +981,7 @@ chat_history = [
         "**Example Prompts**\n\n" \
         "- Can you summarize the accident data from 2020, focusing on common causes?\n\n" \
         "- Show me the top 5 cities with the highest number of accidents in 2021, along with their count.\n\n" \
-        "- What was the percentage distribution of men and women involved in accidents in 2021?\n\n"},
+        },
 ]
 
 # Callback to render content based on selected tab
@@ -1441,7 +1441,21 @@ def render_content(tab):
     
     elif tab == 'tab-5': # Chatbot Tab
         return load_chatbot_layout(chat_history)
-    
+
+@app.callback(
+    Output('chat-history-store', 'data'),
+    Output('chat-history-container', 'children'),
+    Input('clear-button', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_chat_history(n_clicks):
+    if n_clicks and n_clicks > 0:
+        # Reset the chat history to an empty list
+        while len(chat_history) > 1:
+            chat_history.pop()
+        return [], [] # Empty list for store, empty list for children
+    return dash.no_update, dash.no_update # If button not clicked, do nothing
+
 # --- Python Callback 1: Handle User Input and Display Immediately (with loading placeholder) ---
 @app.callback(
     Output('user-input', 'value'),

@@ -1,51 +1,262 @@
 /* assets/style.css */
 
-/* General styles for the markdown content within bot messages */
-.dash-markdown-container p {
-    margin-bottom: 5px; /* Adjust spacing between paragraphs in markdown */
-    color: #E0E0E0; /* Ensure text color is consistent */
+.app-container {
+    background-color: #FFFFFF; /* Ensure the main container is white */
+    font-family: 'Inter', sans-serif;
+    color: #374151;
+    line-height: 1.5;
+    width: 100%;
+    height: 100%;
+    min-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
-/* Bold text */
+/* Main content wrapper (centers chat history) */
+.main-content-wrapper {
+    flex-grow: 1;
+    display: flex;
+    justify-content: center;
+    padding-bottom: 100px; /* Space for the fixed input area */
+    box-sizing: border-box;
+}
+
+/* Chat history display area */
+#chat-history-container {
+    flex-grow: 1;
+    max-width: 1000px;
+    width: 100%;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px; /* Slightly less gap for sleeker look */
+}
+
+/* Message bubble wrappers (for aligning user/bot messages) */
+.message-bubble-wrapper {
+    display: flex;
+    margin-bottom: 8px; /* Slightly less margin bottom */
+}
+
+.user-bubble-wrapper {
+    justify-content: flex-end;
+}
+
+.bot-bubble-wrapper {
+    justify-content: flex-start;
+}
+
+/* Individual message bubble styles */
+.message-bubble {
+    border-radius: 18px;
+    padding: 12px 18px;
+    max-width: 75%;
+    word-break: break-word;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transition: all 0.2s ease-in-out;
+}
+
+.message-bubble:hover {
+    transform: translateY(-2px); /* Slight lift on hover */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+
+.user-bubble {
+    background-color: #E3F2FD; /* Very light blue background */
+    color: #333; /* Dark text on light background */
+}
+
+.bot-bubble {
+    background-color: #F0F0F0; /* Light gray background */
+    color: #333; /* Dark text on light background */
+}
+
+/* New base styling for sender icons */
+.sender-icon {
+    font-size: 1.1em; /* Adjust icon size relative to parent font size */
+    margin-right: 8px;
+    opacity: 0.9;
+    /* Optional: vertical alignment if needed, e.g., vertical-align: middle; */
+}
+
+/* Specific styling for user icon */
+.user-sender-icon {
+    color: #4B5563; /* Matches user sender color */
+}
+
+/* Specific styling for bot icon */
+.bot-sender-icon {
+    color: #3B82F6; /* Matches bot sender color */
+}
+
+/* Message content styles (for <pre> and dcc.Markdown's inner content) */
+.message-content {
+    margin: 0;
+    white-space: pre-wrap;
+    font-size: 0.95em; /* Slightly smaller message text */
+    color: #333; /* Ensure content is dark */
+}
+
+/* Input area - fixed at the bottom */
+.input-bar-fixed-wrapper {
+    padding: 10px 10px;
+    background-color: #f3f3f3; /* Light gray background for input bar */
+    border-top: 1px solid #E0E0E0; /* Subtle border top */
+    border-radius: 10px 10px 0 0;
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 55vw;
+    display: flex;
+    justify-content: center;
+    box-sizing: border-box;
+    z-index: 1000;
+    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.08); /* Soft shadow from bottom */
+}
+
+.input-field-wrapper button.clear-button {
+    margin-left: 10px; /* Adjust as needed for spacing */
+    background-color: #f44336; /* Red color for a clear button */
+    color: white;
+    border: none;
+    border-radius: 50%; /* Make it round */
+    width: 40px; /* Adjust size */
+    height: 40px; /* Adjust size */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    font-size: 1.2em;
+    transition: background-color 0.3s ease;
+}
+
+.input-field-wrapper button.clear-button:hover {
+    background-color: #d32f2f; /* Darker red on hover */
+}
+
+/* Inner input field container */
+.input-field-wrapper {
+    display: flex;
+    align-items: center;
+    background-color: #FFFFFF; /* White background for the actual input field */
+    border-radius: 15px; /* Even more rounded, pill-like */
+    border: none; /* Remove border */
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.05); /* Inner and outer subtle shadows */
+    padding: 10px 20px; /* Increased padding inside input field */
+    width: 100%;
+    justify-content: space-between;
+}
+
+/* User input textarea */
+#user-input {
+    flex-grow: 1;
+    background-color: transparent;
+    border: none;
+    color: #333; /* Dark text color */
+    font-family: 'Inter', sans-serif;
+    font-size: 16px;
+    resize: none;
+    outline: none;
+    min-height: 40px;
+    padding: 0;
+    margin: 0;
+}
+
+/* Send button */
+#send-button {
+    background-color: transparent;
+    border: none;
+    color: #4285F4; /* Blue accent color */
+    font-size: 20px; /* Slightly larger icon */
+    cursor: pointer;
+    margin-left: 15px; /* More margin */
+    padding: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s ease-in-out;
+}
+
+#send-button:hover {
+    color: #357ae8; /* Darker blue on hover */
+}
+
+/* Custom styles for dcc.Markdown content within bot messages */
+.dash-markdown-container p {
+    margin-bottom: 8px; /* Slightly less margin for paragraphs */
+    color: #333; /* Ensure text color is dark */
+}
+
 .dash-markdown-container strong {
-    color: #00BFFF; /* A contrasting color for bold text, or whatever you like */
+    color: #4285F4; /* Use primary accent for strong text */
     font-weight: bold;
 }
 
-/* Italic text */
 .dash-markdown-container em {
-    color: #8BC34A; /* Another color for italics */
+    color: #8BC34A; /* Green accent for italics */
     font-style: italic;
 }
 
-/* Code blocks */
 .dash-markdown-container pre {
-    background-color: #1a1a1a; /* Darker background for code blocks */
-    border: 1px solid #555;
-    padding: 10px;
-    border-radius: 5px;
+    background-color: #E8E8E8; /* Lighter background for code blocks */
+    border: 1px solid #D0D0D0; /* Soft border */
+    padding: 12px;
+    border-radius: 8px;
     overflow-x: auto;
-    color: #f8f8f2; /* Light text for code */
-}
-
-/* Inline code */
-.dash-markdown-container code {
-    background-color: #333;
-    padding: 2px 4px;
-    border-radius: 3px;
+    color: #333; /* Dark text for code */
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-    color: #FFD700; /* Gold for inline code */
+    font-size: 0.9em;
 }
 
-/* Lists */
+.dash-markdown-container code {
+    background-color: #DDDDDD; /* Lighter background for inline code */
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    color: #555; /* Darker color for inline code */
+    font-size: 0.9em;
+}
+
 .dash-markdown-container ul,
 .dash-markdown-container ol {
-    margin-left: 20px;
+    margin-left: 25px; /* Increase indentation */
     margin-bottom: 10px;
+    padding: 0;
 }
 
-/* Links (if any) */
+.dash-markdown-container li {
+    margin-bottom: 5px;
+}
+
 .dash-markdown-container a {
-    color: #337AB7;
-    text-decoration: underline;
+    color: #4285F4;
+    text-decoration: none; /* No underline by default */
+}
+
+.dash-markdown-container a:hover {
+    text-decoration: underline; /* Underline on hover */
+}
+
+/* Scrollbar styling for a sleeker look (Webkit browsers like Chrome, Safari) */
+#chat-history-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+#chat-history-container::-webkit-scrollbar-track {
+    background: transparent; /* Makes the track invisible */
+}
+
+#chat-history-container::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2); /* Semi-transparent, light thumb */
+    border-radius: 10px;
+    border: 2px solid transparent; /* Keeps thumb thinner */
+    background-clip: padding-box; /* Ensures border doesn't fill the thumb */
+}
+
+#chat-history-container::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.3); /* Darker on hover */
 }

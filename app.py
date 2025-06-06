@@ -975,14 +975,6 @@ def get_county_data(counties_selected):
         return combined_df
     else:
         return pd.DataFrame()
-    
-chat_history = [    
-    {"sender": "bot", "message": "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
-        "**Example Prompts**\n\n" \
-        "- Can you summarize the crash data from 2020, focusing on common causes?\n\n" \
-        "- Show me the top 5 cities with the highest number of crashes in 2021, along with their count.\n\n" \
-        },
-]
 
 # Callback to render content based on selected tab
 @app.callback(Output('tabs-content', 'children'), Input('tabs', 'value'))
@@ -1440,7 +1432,12 @@ def render_content(tab):
         ], className='desktop-layout')
     
     elif tab == 'tab-5': # Chatbot Tab
-        return load_chatbot_layout(chat_history)
+        return load_chatbot_layout(
+            [{"sender": "bot", "message": "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
+            "**Example Prompts**\n\n" \
+            "- Can you summarize the crash data from 2020, focusing on common causes?\n\n" \
+            "- Show me the top 5 cities with the highest number of crashes in 2021, along with their count.\n\n" \
+            }])
 
 @app.callback(
     Output('chat-history-store', 'data'),
@@ -3046,6 +3043,6 @@ if __name__ == '__main__':
     globals()['census_polygons_by_county'] = census_polygons_by_county
     globals()['data_by_county'] = data_by_county
     print("Finished loading webapp.")
-    print("127.0.0.1:8080")
+    print("127.0.0.1:8050")
 
-    app.run(port="8080", debug=False)
+    app.run(port="8050", debug=True)

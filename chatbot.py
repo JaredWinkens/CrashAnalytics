@@ -1,12 +1,11 @@
 from google import genai
 from google.genai import types
 from google.genai.errors import ServerError
-import pandas as pd
 import sqlite3
 import json
-import signal
-import pathlib
 from chatbot_config import *
+import concurrent.futures
+import time
 
 client = genai.Client(api_key="AIzaSyBQ2Ca6HSly3DdXo4e35Nd1PjoroVSyFzs")
 
@@ -26,7 +25,7 @@ You will always be given **two inputs**, in this order:
 3. A JSON list containing the schema of the table. Each item in the list is a dictionary with:
     - 'column_name': the name of the column (string)
     - 'data_type': the SQL data type of the column (string). This will be a standard SQL type (e.g., TEXT, INTEGER, REAL, DATE, TIMESTAMP, BOOLEAN).
-    - 'example_data': a list of up to 3 example values for that column. These examples are representative of the column's content.
+    - 'sample_data': a list of up to 3 sample values for that column. These samples are representative of the column's content.
 4. A JSON list containing over 100 example queries with their expected ouput
 
 Your task is to generate a valid SQL query that can be executed on a known table **based on these inputs**, using the given schema and examples to infer intent, resolve ambiguity, and handle various query types.
@@ -105,6 +104,18 @@ You are a highly skilled formatter designed to transform SQL query results into 
 📌 **Always produce a single, complete response. Do not include any internal system messages, prompts, or extra commentary.**
 """
 
+def call_with_timeout(func, timeout, *args, **kwargs):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            print(f"Function '{func.__name__}' timed out after {timeout} seconds.")
+            return f"Function '{func.__name__}' timed out after {timeout} seconds." # Or raise a custom exception
+        except Exception as e:
+            print(f"Function '{func.__name__}' raised an exception: {e}")
+            return f"Function '{func.__name__}' raised an exception: {e}"# Re-raise the original exception
+
 def naturallang_to_sql(user_prompt, metadata) -> str:
     result = ""
     try:
@@ -118,7 +129,7 @@ def naturallang_to_sql(user_prompt, metadata) -> str:
             contents=[
                 "User Query: ", user_prompt,
                 "Table Name: ", TABLE_NAME,
-                "Table Schema + Example Data: ", metadata,
+                "Table Schema + Sample Data: ", metadata,
                 "I/O Examples: ", examples,
             ]
         )
@@ -144,26 +155,35 @@ def trim_input_string(text: str) -> str:
         return text[:MAX_CHARS]
     return text
 
+def execute_sql_query(query, params=None):
+    conn = None
+    try:
+        # Execute SQL Query
+        conn = sqlite3.connect(DATABASE)
+        cursor = conn.cursor()
+        print(f"Executing query in thread: {query}")
+        start_time = time.time()
+        cursor.execute(query, params if params is not None else ())
+        result = str(cursor.fetchall())
+        end_time = time.time()
+        print(f"Query executed in {end_time - start_time:.2f} seconds.")
+        # result = call_with_timeout(pd.read_sql_query, 10, query, conn)
+        # query_result = str(result)
+        return result
+    except Exception as e:
+        print(f"Error executing SQL query: {e}")
+        raise
+    finally:
+        if conn:
+            conn.close()
+
 def get_query_result(query) -> str:
     query_result = ""
     if (query.startswith('#')):
         query_result = query
     else:
-        # Execute SQL Query
-        conn = sqlite3.connect(DATABASE)
-        #cursor = conn.cursor()
-
-        try:
-            result = pd.read_sql_query(query, conn)
-            query_result = result.to_string()
-            # cursor.execute(query)
-            # query_result = str(cursor.fetchall())
-        except Exception as e:
-            print(f"Error executing SQL query: {e}")
-            query_result = str(e)
-
-        conn.close()
-
+        query_result = call_with_timeout(execute_sql_query, 60, query)
+    
     trimmed_query_result = trim_input_string(query_result)
     print("QUERY RESULT: ", trimmed_query_result)
     return trimmed_query_result

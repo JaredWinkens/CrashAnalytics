@@ -979,8 +979,8 @@ def get_county_data(counties_selected):
 chat_history = [    
     {"sender": "bot", "message": "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
         "**Example Prompts**\n\n" \
-        "- Can you summarize the accident data from 2020, focusing on common causes?\n\n" \
-        "- Show me the top 5 cities with the highest number of accidents in 2021, along with their count.\n\n" \
+        "- Can you summarize the crash data from 2020, focusing on common causes?\n\n" \
+        "- Show me the top 5 cities with the highest number of crashes in 2021, along with their count.\n\n" \
         },
 ]
 
@@ -1451,8 +1451,8 @@ def render_content(tab):
 def clear_chat_history(n_clicks):
     if n_clicks and n_clicks > 0:
         # Reset the chat history to an empty list
-        while len(chat_history) > 1:
-            chat_history.pop()
+        # while len(chat_history) > 1:
+        #     chat_history.pop()
         return [], [] # Empty list for store, empty list for children
     return dash.no_update, dash.no_update # If button not clicked, do nothing
 
@@ -1475,7 +1475,7 @@ def handle_user_input(send_button_clicks, user_question, current_chat_data, curr
     # Append user message
     msg = {"sender": "user", "message": user_question}
     current_chat_data.append(msg)
-    chat_history.append(msg)
+    #chat_history.append(msg)
 
     # Append temporary loading message
     loading_msg = {"sender": "bot", "message": "Thinking..."}
@@ -1515,7 +1515,7 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
 
     msg = {"sender": "bot", "message": bot_response_message_content}
     current_chat_data.append(msg)
-    chat_history.append(msg)
+    #chat_history.append(msg)
     new_scroll_trigger = current_scroll_trigger + 1
 
     return current_chat_data, new_scroll_trigger
@@ -3046,6 +3046,6 @@ if __name__ == '__main__':
     globals()['census_polygons_by_county'] = census_polygons_by_county
     globals()['data_by_county'] = data_by_county
     print("Finished loading webapp.")
-    print("127.0.0.1:8050")
+    print("127.0.0.1:8080")
 
-    app.run(debug=True)
+    app.run(port="8080", debug=False)

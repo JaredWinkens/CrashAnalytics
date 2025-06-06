@@ -2,69 +2,19 @@ from google import genai
 from google.genai import types
 from google.genai.errors import ServerError
 import pandas as pd
-from pandas.io.json._table_schema import build_table_schema
 import sqlite3
 import json
+import signal
 import pathlib
-
-MODEL = "gemini-1.5-flash"
-DATABASE = "data/crash_data.db"
-CSV_FILE = "data/Combined_Data.csv"
-TABLE_NAME = "combined_data"
-METADATA_PATH = "data/Combined_Data_Metadata.json"
-MAX_TOKENS = 200_000
-APPROX_CHARS_PER_TOKEN = 4  # Conservative estimate
-MAX_CHARS = MAX_TOKENS * APPROX_CHARS_PER_TOKEN
+from chatbot_config import *
 
 client = genai.Client(api_key="AIzaSyBQ2Ca6HSly3DdXo4e35Nd1PjoroVSyFzs")
 
-df = pd.read_csv(CSV_FILE, parse_dates=['CrashDate', 'DMVInsertD'])
-
 metadata_file = open(METADATA_PATH)
 metadata = str(json.load(metadata_file))
-print(metadata)
 
-# Preprocessing functions
-def csv_to_sql_table():
-
-    conn = sqlite3.connect(DATABASE)
-    
-    df.to_sql(TABLE_NAME, conn, if_exists='replace', index=False)
-
-    conn.close()
-    print("Data imported successfully")
-
-def get_sql_table_schema():
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    cursor.execute(f"PRAGMA table_info({TABLE_NAME})")
-    table_info = cursor.fetchall()
-    conn.close()
-
-    schema = []
-    for row in table_info:
-        schema.append({
-            'column_name': row[1],
-            'data_type': row[2],
-            'example_data': []
-        })
-
-    for i, col in enumerate(df.columns):
-        first_three_values = df[col].head(3)
-        #print(df[col].head(3))
-        for val in first_three_values:
-            curr_col = schema[i]
-            curr_col['example_data'].append(val)
-    
-    return schema
-
-def schema_to_json_file(schema):
-    try:
-        with open(METADATA_PATH, 'w') as jsonfile:
-            json.dump(schema, jsonfile, indent=4)
-        print(f"SQL schema saved to '{METADATA_PATH}'")
-    except Exception as e:
-        print(f"Error saving schema to JSON: {e}")
+exmaples_file = open(TRAINING_DATA_PATH)
+examples = str(json.load(exmaples_file))
 
 # Initilize the purpose of the translator module
 translator_module_role = f"""
@@ -72,14 +22,14 @@ You are a natural language to SQL translator. Your goal is to generate accurate 
 
 You will always be given **two inputs**, in this order:
 1. A natural language user query.
-2. A JSON list containing the schema of the table. Each item in the list is a dictionary with:
+2. The SQL table name
+3. A JSON list containing the schema of the table. Each item in the list is a dictionary with:
     - 'column_name': the name of the column (string)
     - 'data_type': the SQL data type of the column (string). This will be a standard SQL type (e.g., TEXT, INTEGER, REAL, DATE, TIMESTAMP, BOOLEAN).
     - 'example_data': a list of up to 3 example values for that column. These examples are representative of the column's content.
+4. A JSON list containing over 100 example queries with their expected ouput
 
 Your task is to generate a valid SQL query that can be executed on a known table **based on these inputs**, using the given schema and examples to infer intent, resolve ambiguity, and handle various query types.
-
-The name of the known table is `{TABLE_NAME}`.
 
 🟢 Your response must:
 - Output only the **raw SQL query string**, with no extra text, explanations, or formatting beyond the SQL itself.
@@ -132,7 +82,7 @@ You are a highly skilled formatter designed to transform SQL query results into 
     * If the results are single values (e.g., COUNT, SUM, AVG), clearly state the answer.
     * Be precise with numerical values and appropriate units (if implied by column names).
 
-2.  **Successful Query with No Results (`[]`):**
+2.  **Successful Query with No Results:**
     * Politely inform the user that no matching records were found.
     * Offer a concise, user-friendly suggestion based on the `user_input` and general database search patterns (e.g., "There were no records found matching your request. You might try broadening your search criteria or checking for alternative spellings."). Do NOT speculate on technical reasons like "data might be missing" unless it's a known, common issue for that specific query type.
 
@@ -166,8 +116,10 @@ def naturallang_to_sql(user_prompt, metadata) -> str:
                 temperature=0,
                 ),
             contents=[
-                user_prompt,
-                metadata,
+                "User Query: ", user_prompt,
+                "Table Name: ", TABLE_NAME,
+                "Table Schema + Example Data: ", metadata,
+                "I/O Examples: ", examples,
             ]
         )
         result = translator_response.text
@@ -226,8 +178,8 @@ def get_formatted_output(query_result, user_prompt):
                 temperature=0,
             ),
             contents=[
-                query_result, 
-                user_prompt]
+                "Query Result: ", query_result, 
+                "Original User Query", user_prompt]
         )
         result = output_response.text
     except ServerError as e:

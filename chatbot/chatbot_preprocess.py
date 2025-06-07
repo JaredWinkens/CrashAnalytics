@@ -1,6 +1,6 @@
 import pandas as pd
 import sqlite3
-from chatbot_config import *
+from chatbot.chatbot_config import *
 
 df = pd.read_csv(CSV_FILE, parse_dates=['CrashDate', 'DMVInsertD'])
 

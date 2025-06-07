@@ -16,8 +16,9 @@ import math
 import json
 import subprocess
 # Import your layout components
-from chatbot_layout import load_chatbot_layout, render_message_bubble
-from chatbot import generate_response
+from chatbot.chatbot_layout import load_chatbot_layout, render_message_bubble
+from chatbot.chatbot import generate_response
+from analyzer.analyzer import get_insights
 
 DEFAULT_PRED_FILES = {
     'AI.py':  './AI/Large_DataSet2.25_with_predictions.gpkg',
@@ -984,7 +985,7 @@ def render_content(tab):
     # Ensure that the unique lists are available (they must be defined globally after loading the data)
     global unique_weather, unique_light, unique_road
 
-    if tab == 'tab-1':
+    if tab == 'tab-1': # Data Downloader Tab
         return html.Div(
             children=[
                 html.Div(
@@ -1030,7 +1031,7 @@ def render_content(tab):
             ]
         )
 
-    elif tab == 'tab-2':
+    elif tab == 'tab-2': # Heatmap Tab
         return html.Div([
             html.Div([
                 html.Div([
@@ -1085,7 +1086,7 @@ def render_content(tab):
             ], className='responsive-controls'),
             
             # Right-side: The Heatmap Graph container
-            html.Div(
+            html.Div([
                 dcc.Graph(
                     id='heatmap_graph',
                     className='responsive-graph',
@@ -1105,11 +1106,27 @@ def render_content(tab):
                     },
                     config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
                 ),
-                className='responsive-graph'
-            )
-        ], className='desktop-layout')
+                # Right-side: Display AI generated insights
+                html.Div(
+                    className= 'insights-wrapper',
+                    children=[
+                        html.Div(
+                            id='insight-display-container',
+                            children=[
+                                html.H1("AI Powered Insights"),
+                                dcc.Markdown(
+                                    id='insight-content',
+                                    children="""
+                                    """,
+                                )
+                            ],
+                        className='insight-display-wrapper')])
+                
+        ], className='responsive-graph'),
+    
+    ], className='desktop-layout')
 
-    elif tab == 'tab-3':
+    elif tab == 'tab-3': # Census Data Tab
         return html.Div([
             html.Div([
                 census_controls(),
@@ -1844,6 +1861,7 @@ def filter_data_tab2(df, data_type):
 
 @app.callback(
     Output('heatmap_graph', 'figure'),
+    Output('insight-content', 'children'),
     Input('apply_filter_tab2', 'n_clicks'),
     State('radius_slider_tab2', 'value'),
     State('county_selector_tab2', 'value'),
@@ -1880,7 +1898,7 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
             mapbox_style="open-street-map", opacity=0.7
         )
         fig.update_layout(uirevision=key)
-        return fig
+        return fig, "Click 'Apply Filters' to see insights."
 
     # LOAD YOUR DATA
     df = get_county_data(counties_selected)
@@ -1895,7 +1913,7 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
             mapbox_style="open-street-map", opacity=0.7
         )
         fig.update_layout(uirevision=key)
-        return fig
+        return fig, "No data found for selected counties. Please adjust filters."
 
     # APPLY *exactly* the same filters as Tab1, *including* VRU sub‐type
     filtered = filter_data_tab1(
@@ -1905,6 +1923,9 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
         severity_category, crash_type,
         main_data_type, vru_data_type, 
     )
+    #print(str(filtered))
+    insights = get_insights(filtered)
+    #print(insights)
 
     # COMPUTE CENTER
     if filtered.empty:
@@ -1939,7 +1960,7 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
         }
     )
     fig.update_layout(uirevision=key)
-    return fig
+    return fig, insights
 
 
 

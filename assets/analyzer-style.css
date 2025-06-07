@@ -1,0 +1,70 @@
+.insights-wrapper {
+    flex: 1;
+    width: 60vw;
+    position: relative;
+    margin-top: -80px;
+    margin-left: 100px;
+    
+}
+.insight-display-wrapper {
+background-color: #ffffff;
+border: 1px solid #ddd;
+border-radius: 8px;
+padding: 15px;
+box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+overflow-y: auto; /* Enable vertical scrolling */
+margin: 0 auto;
+width: 100%; /* Adjust width as needed */
+}
+/* Styling for Markdown content */
+.insight-display-wrapper p {
+    line-height: 1.6;
+    margin-bottom: 1em;
+    color: #555;
+}
+
+.insight-display-wrapper h2,
+.insight-display-wrapper h3 {
+    color: #444;
+    margin-top: 1.5em;
+    margin-bottom: 0.8em;
+}
+
+.insight-display-wrapper ul,
+.insight-display-wrapper ol {
+    margin-left: 20px;
+    margin-bottom: 1em;
+}
+
+.insight-display-wrapper code {
+    font-family: 'Courier New', monospace;
+    background-color: #eee;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.insight-display-wrapper pre {
+    background-color: #f8f8f8;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    overflow-x: auto;
+    margin-bottom: 1.5em;
+}
+
+.insight-display-wrapper a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.insight-display-wrapper a:hover {
+    text-decoration: underline;
+}
+
+.insight-display-wrapper hr {
+    border: 0;
+    height: 1px;
+    background: #eee;
+    margin: 2em 0;
+}

@@ -3,7 +3,7 @@ from google.genai import types
 from google.genai.errors import ServerError
 import sqlite3
 import json
-from chatbot_config import *
+from chatbot.chatbot_config import *
 import concurrent.futures
 import time
 

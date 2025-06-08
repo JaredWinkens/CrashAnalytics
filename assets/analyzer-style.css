@@ -1,21 +1,26 @@
+/* Base styles - these apply to all screen sizes, including mobile first */
 .insights-wrapper {
     flex: 1;
-    width: 60vw;
-    position: relative;
-    margin-top: -80px;
-    margin-left: 100px;
-    
+    /* Remove fixed width and margins for a better mobile experience */
+    position: relative; /* Keep this if needed for absolute positioning of children */
+    margin-top: 0; /* Adjust or remove negative margin for mobile */
+    margin-left: 0; /* Adjust or remove fixed margin for mobile */
+    width: 100%; /* Default to full width on smaller screens */
+    padding: 15px; /* Add some padding for spacing on smaller screens */
+    box-sizing: border-box; /* Include padding in the element's total width and height */
 }
+
 .insight-display-wrapper {
-background-color: #ffffff;
-border: 1px solid #ddd;
-border-radius: 8px;
-padding: 15px;
-box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-overflow-y: auto; /* Enable vertical scrolling */
-margin: 0 auto;
-width: 100%; /* Adjust width as needed */
+    background-color: #ffffff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    overflow-y: auto;
+    margin: 0 auto;
+    width: 100%; /* Ensure it always takes full available width */
 }
+
 /* Styling for Markdown content */
 .insight-display-wrapper p {
     line-height: 1.6;
@@ -42,6 +47,9 @@ width: 100%; /* Adjust width as needed */
     padding: 2px 4px;
     border-radius: 4px;
     font-size: 0.9em;
+    /* Ensure code doesn't overflow on small screens */
+    word-wrap: break-word;
+    white-space: pre-wrap; /* Allows wrapping within pre blocks */
 }
 
 .insight-display-wrapper pre {
@@ -49,7 +57,7 @@ width: 100%; /* Adjust width as needed */
     border: 1px solid #ddd;
     border-radius: 5px;
     padding: 15px;
-    overflow-x: auto;
+    overflow-x: auto; /* Keep horizontal scrolling for code blocks if content is too wide */
     margin-bottom: 1.5em;
 }
 
@@ -67,4 +75,14 @@ width: 100%; /* Adjust width as needed */
     height: 1px;
     background: #eee;
     margin: 2em 0;
+}
+
+/* Media query for larger screens (e.g., tablets and desktops) */
+@media (min-width: 768px) {
+    .insights-wrapper {
+        width: 60vw; /* Apply specific width for larger screens */
+        margin-top: -80px; /* Reapply original margin for larger screens */
+        margin-left: 100px; /* Reapply original margin for larger screens */
+        padding: 0; /* Remove extra padding added for small screens */
+    }
 }

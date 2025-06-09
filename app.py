@@ -1923,9 +1923,26 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
         severity_category, crash_type,
         main_data_type, vru_data_type, 
     )
-    #print(str(filtered))
-    insights = get_insights(filtered)
-    #print(insights)
+
+    filters = {
+        "Heatmap Radius (0.1mi - 10mi)": radius_miles,
+        "Counties Selected": counties_selected,
+        "Main Data Type (All or VRU)": main_data_type,
+        "VRU Data Type (All, Bicycle, Pedestrian)": vru_data_type,
+        "Start Date": start_date,
+        "End Data": end_date,
+        "Time Range (12am - 11pm)": time_range,
+        "Days of the Week": days_of_week,
+        "Gender (All, Male, Female, or Other)": gender,
+        "Weather Condition": weather,
+        "Road Surface Condition": road_surface,
+        "Light Condition": light,
+        "Crash Type": crash_type,
+        "Severity Category": severity_category,
+    }
+
+    insights = get_insights(filters=filters, filtered_data=filtered, original_data=df)
+
 
     # COMPUTE CENTER
     if filtered.empty:

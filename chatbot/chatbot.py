@@ -4,16 +4,11 @@ from google.genai.errors import ServerError
 import sqlite3
 import json
 from chatbot.chatbot_config import *
+from chatbot.chatbot_preprocess import *
 import concurrent.futures
 import time
 
-client = genai.Client(api_key="AIzaSyBQ2Ca6HSly3DdXo4e35Nd1PjoroVSyFzs")
-
-metadata_file = open(METADATA_PATH)
-metadata = str(json.load(metadata_file))
-
-exmaples_file = open(TRAINING_DATA_PATH)
-examples = str(json.load(exmaples_file))
+client = genai.Client(api_key=API_KEY)
 
 def call_with_timeout(func, timeout, *args, **kwargs):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -27,7 +22,7 @@ def call_with_timeout(func, timeout, *args, **kwargs):
             print(f"Function '{func.__name__}' raised an exception: {e}")
             return f"Function '{func.__name__}' raised an exception: {e}"# Re-raise the original exception
 
-def naturallang_to_sql(user_prompt, metadata) -> str:
+def naturallang_to_sql(prompt) -> str:
     result = ""
     try:
         # Human-to-SQL Translator Module
@@ -35,14 +30,11 @@ def naturallang_to_sql(user_prompt, metadata) -> str:
             model=MODEL,
             config=types.GenerateContentConfig(
                 system_instruction=TRANSLATOR_MODULE_ROLE,
-                temperature=0,
+                temperature=0.3,
+                top_k=5,
+                top_p=0.7,
                 ),
-            contents=[
-                "User Query: ", user_prompt,
-                "Table Name: ", TABLE_NAME,
-                "Table Schema + Sample Data: ", metadata,
-                "I/O Examples: ", examples,
-            ]
+            contents=[prompt]
         )
         result = translator_response.text
     except ServerError as e:
@@ -82,8 +74,7 @@ def execute_sql_query(query, params=None):
         # query_result = str(result)
         return result
     except Exception as e:
-        print(f"Error executing SQL query: {e}")
-        raise
+        raise e
     finally:
         if conn:
             conn.close()
@@ -99,18 +90,18 @@ def get_query_result(query) -> str:
     print("QUERY RESULT: ", trimmed_query_result)
     return trimmed_query_result
 
-def get_formatted_output(query_result, user_prompt):
+def get_formatted_output(prompt):
     result = ""
     try:
         output_response = client.models.generate_content(
             model=MODEL,
             config=types.GenerateContentConfig(
                 system_instruction=OUTPUT_MODULE_ROLE,
-                temperature=0,
+                temperature=0.4,
+                top_k=30,
+                top_p=0.9,
             ),
-            contents=[
-                "Query Result: ", query_result, 
-                "Original User Query", user_prompt]
+            contents=[prompt]
         )
         result = output_response.text
     except ServerError as e:
@@ -124,9 +115,20 @@ def get_formatted_output(query_result, user_prompt):
     return result
 
 def generate_response(user_input):
+    # Get name & data type of each column in the table
+    schema = get_table_schema_dict(DATABASE, TABLE_NAME, True, 3)
 
+    # Format schema
+    schema_str = format_schema(schema)
+
+    # Get n shot exmaples
+    few_shot_examples = get_n_shot_examples(3)
+
+    # Build prompt
+    translator_prompt = build_translator_prompt(user_input, [schema_str], few_shot_examples)
+    
     # Translate natural language to SQL
-    translator_response = naturallang_to_sql(user_input, metadata)
+    translator_response = naturallang_to_sql(translator_prompt)
 
     # Clean up translator response
     query = clean_query(translator_response)
@@ -134,8 +136,11 @@ def generate_response(user_input):
     # Get the result of the query
     query_result = get_query_result(query)
 
+    # Build prompt
+    output_prompt = build_output_prompt(user_input, query, query_result)
+    
     # Get formatted output
-    output = get_formatted_output(query_result, user_input)
+    output = get_formatted_output(output_prompt)
 
     return output
     

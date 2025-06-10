@@ -1,6 +1,5 @@
 import dash
 from dash import dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL
-import chatbot
 import datetime
 import plotly.express as px
 import plotly.graph_objects as go  
@@ -15,7 +14,6 @@ import geopandas as gpd
 import math
 import json
 import subprocess
-# Import your layout components
 from chatbot.chatbot_layout import load_chatbot_layout, render_message_bubble
 from chatbot.chatbot import generate_response
 from analyzer.analyzer import get_insights
@@ -1942,7 +1940,6 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
     }
 
     insights = get_insights(filters=filters, filtered_data=filtered, original_data=df)
-
 
     # COMPUTE CENTER
     if filtered.empty:

@@ -1,27 +1,11 @@
+import concurrent.futures
 from google import genai
 from google.genai import types
 from google.genai.errors import ServerError
-from analyzer.config import *
+from analyzer.analyzer_config import *
 import pandas as pd
 
-client = genai.Client(api_key="AIzaSyBQ2Ca6HSly3DdXo4e35Nd1PjoroVSyFzs")
-
-analyzer_role = """
-You are a traffic crash data analyst. Your task is to provide clear, in-depth, and meaningful insights about a **filtered dataset** of traffic crash data. You will be provided with:
-
-- A **statistical summary** of the filtered dataset  
-- A **summary of the original, unfiltered dataset**  
-- A description of the **filters applied by the user**  
-
-Your primary goal is to **analyze and interpret the filtered dataset**, using the unfiltered data and user filters only as **contextual support**. Do **not** focus on directly comparing or contrasting the filtered and unfiltered datasets.
-
-Instead, use the unfiltered dataset to better understand what makes the filtered data noteworthy or unusual, and to provide meaningful baselines or expectations where appropriate. Pay particular attention to how the **filters may have shaped the data**. 
-Speculate thoughtfully on how the selected filters could be influencing the observed patterns, and how different or additional filters might lead to different insights.
-
-Always center the analysis on the **filtered dataset itself**. Provide actionable observations, trends, correlations, or anomalies that emerge from the filtered data. Use statistical reasoning and domain-relevant logic where applicable.
-
-Output should be clear, concise, and structured for decision-making and further investigation.
-"""
+client = genai.Client(api_key=API_KEY)
 
 import pandas as pd
 
@@ -66,33 +50,46 @@ def generate_crash_data_summary(df: pd.DataFrame) -> dict:
 
     return summary
 
-
+def call_with_timeout(func, timeout, *args, **kwargs):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            print(f"Function '{func.__name__}' timed out after {timeout} seconds.")
+            return f"Function '{func.__name__}' timed out after {timeout} seconds."
+        except Exception as e:
+            print(f"Function '{func.__name__}' raised an exception: {e}")
+            return f"Function '{func.__name__}' raised an exception: {e}"
+        
 def get_insights(filters: dict, filtered_data: pd.DataFrame, original_data: pd.DataFrame) -> str:
 
     original_data_summary = generate_crash_data_summary(original_data)
     filtered_data_summary = generate_crash_data_summary(filtered_data)
 
-    result = ""
+    response = call_with_timeout(generate_response, 60, filters, filtered_data_summary, original_data_summary)
+
+    return response
+
+def generate_response(filters: dict, filtered_data_summary: dict, original_data_summary: dict) -> str:
     try:
         response = client.models.generate_content(
             model=MODEL,
             config=types.GenerateContentConfig(
-                system_instruction=analyzer_role,
+                system_instruction=ANALYZER_ROLE,
                 temperature=0,
             ),
             contents=[
                 "Filtered Dataset Summary: ", str(filtered_data_summary),
                 "Full Dataset Summary: ", str(original_data_summary),
-                "User Filters: ", str(filters),  
+                "Filters Used: ", str(filters), 
             ]
         )
-        result = response.text
+        return response.text
     except ServerError as e:
-        result = str(e)
+        raise e
     except Exception as e:
-        result = str(e)
-
-    return result
+        raise e
 
 def main():
     pass

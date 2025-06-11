@@ -1,0 +1,3 @@
+VRU_rate: Dependent variable 
+
+regions=['A', 'B', 'C', 'D', 'E', 'FG', 'HIJ']

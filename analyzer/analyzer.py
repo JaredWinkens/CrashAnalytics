@@ -4,6 +4,7 @@ from google.genai import types
 from google.genai.errors import ServerError
 from analyzer.analyzer_config import *
 import pandas as pd
+from pydantic import BaseModel
 
 client = genai.Client(api_key=API_KEY)
 
@@ -62,30 +63,46 @@ def call_with_timeout(func, timeout, *args, **kwargs):
             print(f"Function '{func.__name__}' raised an exception: {e}")
             return f"Function '{func.__name__}' raised an exception: {e}"
         
-def get_insights(filters: dict, filtered_data: pd.DataFrame, original_data: pd.DataFrame) -> str:
+def get_insights(image_bytes) -> str:
 
-    original_data_summary = generate_crash_data_summary(original_data)
-    filtered_data_summary = generate_crash_data_summary(filtered_data)
-
-    response = call_with_timeout(generate_response, 60, filters, filtered_data_summary, original_data_summary)
+    response = call_with_timeout(generate_response, 60, image_bytes)
 
     return response
 
-def generate_response(filters: dict, filtered_data_summary: dict, original_data_summary: dict) -> str:
+class Insight(BaseModel):
+    key_hotspots: str
+    observed_patterns: str
+    inferred_cuases: str
+
+def format_response(response: Insight) -> str:
+    return f"""
+    - **Key Hotspots:** {response.key_hotspots}\n\n
+    - **Observed Patterns:** {response.observed_patterns}\n\n
+    - **Inferred Cuases:** {response.inferred_cuases}\n\n
+    """
+
+def generate_response(image) -> str:
     try:
         response = client.models.generate_content(
             model=MODEL,
             config=types.GenerateContentConfig(
                 system_instruction=ANALYZER_ROLE,
                 temperature=0,
+                response_mime_type="application/json",
+                response_schema=Insight,
             ),
             contents=[
-                "Filtered Dataset Summary: ", str(filtered_data_summary),
-                "Full Dataset Summary: ", str(original_data_summary),
-                "Filters Used: ", str(filters), 
+                types.Part.from_bytes(
+                    data=image,
+                    mime_type='image/png'
+                ),
+                "Analyze the provided crash density heatmap."
             ]
         )
-        return response.text
+        print(response.text)
+        myinsights: Insight = response.parsed
+        formatted_response = format_response(response=myinsights)
+        return formatted_response
     except ServerError as e:
         raise e
     except Exception as e:

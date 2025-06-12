@@ -1,21 +1,19 @@
 /* Base styles - these apply to all screen sizes, including mobile first */
 .insights-wrapper {
     flex: 1;
+    font-size: large;
     /* Remove fixed width and margins for a better mobile experience */
     position: relative; /* Keep this if needed for absolute positioning of children */
+    top: -18px;
     margin-top: 0; /* Adjust or remove negative margin for mobile */
     margin-left: 0; /* Adjust or remove fixed margin for mobile */
     width: 100%; /* Default to full width on smaller screens */
-    padding: 15px; /* Add some padding for spacing on smaller screens */
     box-sizing: border-box; /* Include padding in the element's total width and height */
 }
 
 .insight-display-wrapper {
     background-color: #ffffff;
-    border: 1px solid #ddd;
     border-radius: 8px;
-    padding: 15px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     overflow-y: auto;
     margin: 0 auto;
     width: 100%; /* Ensure it always takes full available width */
@@ -37,8 +35,7 @@
 
 .insight-display-wrapper ul,
 .insight-display-wrapper ol {
-    margin-left: 20px;
-    margin-bottom: 1em;
+    margin-bottom: 2em;
 }
 
 .insight-display-wrapper code {
@@ -77,6 +74,23 @@
     margin: 2em 0;
 }
 
+#insight-button {
+    background-color: #0c44ac;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    width: 150px; /* Slightly smaller size */
+    height: 40px; /* Slightly smaller size */
+    font-size: 1.1em; /* Adjust font size */
+    position: relative;
+    top: -145px;
+    left: 105px;
+}
+
+#insight-button :hover{
+    color: #9fbef0;
+}
 /* Media query for larger screens (e.g., tablets and desktops) */
 @media (min-width: 768px) {
     .insights-wrapper {

@@ -2,6 +2,7 @@ import dash
 from dash import dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL
 import datetime
 import plotly.express as px
+import plotly.io as pio
 import plotly.graph_objects as go  
 import pandas as pd
 import os
@@ -1078,6 +1079,12 @@ def render_content(tab):
                     },
                     config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
                 ),
+                html.Button(
+                    id='insight-button',n_clicks=0, 
+                    children=[
+                        html.I(className="fas fa-lightbulb"),
+                        html.Span(" Get Insights")  # Button text
+                    ]),
                 # Right-side: Display AI generated insights
                 html.Div(
                     className= 'insights-wrapper',
@@ -1085,12 +1092,16 @@ def render_content(tab):
                         html.Div(
                             id='insight-display-container',
                             children=[
-                                html.H1("AI Powered Insights"),
-                                dcc.Markdown(
-                                    id='insight-content',
-                                    children="""
-                                    """,
-                                )
+                                dcc.Loading(
+                                    id="loading-output-text",
+                                    type="dot",
+                                    children=[
+                                        dcc.Markdown(
+                                        id='insight-content',
+                                        children="""
+                                        """,
+                                    )]
+                                ),
                             ],
                         className='insight-display-wrapper')])
                 
@@ -1442,6 +1453,26 @@ def clear_chat_history(n_clicks):
         return [], [] # Empty list for store, empty list for children
     return dash.no_update, dash.no_update # If button not clicked, do nothing
 
+@app.callback(
+        Output('insight-content', 'children'),
+        Input('insight-button', 'n_clicks'),
+        State('heatmap_graph', 'figure'),
+        running = [
+            (Output('insight-content', 'children'), "Generating Insights...", ""),
+        ]
+)
+def generate_insights(n_clicks, fig_snapshot):
+    fig_width = 1280
+    fig_height = 720
+    if n_clicks and n_clicks > 0:
+
+        #pio.write_image(fig_snapshot, "density_map.png", scale=1, width=fig_width, height=fig_height)
+        image_bytes = pio.to_image(fig=fig_snapshot, format='png', scale=1, width=fig_width, height=fig_height)
+        insghts = get_insights(image_bytes=image_bytes)
+
+        return insghts
+    return dash.no_update
+
 # --- Python Callback 1: Handle User Input and Display Immediately (with loading placeholder) ---
 @app.callback(
     Output('user-input', 'value'),
@@ -1694,9 +1725,9 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
 
     # empty‐data fallback
     if df.empty:
-        fig = px.scatter_mapbox(
+        fig = px.scatter_map(
             pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
-            lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
+            lat='Latitude', lon='Longitude', zoom=10, map_style="open-street-map"
         )
         fig.update_traces(marker=dict(opacity=0))
         fig.update_layout(uirevision=key)
@@ -1737,15 +1768,15 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
 
     # build the figure
     if df_to_plot.empty:
-        fig = px.scatter_mapbox(
+        fig = px.scatter_map(
             pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
-            lat='Latitude', lon='Longitude', zoom=10, mapbox_style="open-street-map"
+            lat='Latitude', lon='Longitude', zoom=10, map_style="open-street-map"
         )
         fig.update_traces(marker=dict(opacity=0))
     else:
-        fig = px.scatter_mapbox(
+        fig = px.scatter_map(
             df_to_plot,
-            lat='Y_Coord', lon='X_Coord', zoom=10, mapbox_style="open-street-map",
+            lat='Y_Coord', lon='X_Coord', zoom=10, map_style="open-street-map",
             hover_name='Case_Number',
             hover_data={
                 'Crash_Date': True, 'Crash_Time': True,
@@ -1831,7 +1862,6 @@ def filter_data_tab2(df, data_type):
 
 @app.callback(
     Output('heatmap_graph', 'figure'),
-    Output('insight-content', 'children'),
     Input('apply_filter_tab2', 'n_clicks'),
     State('radius_slider_tab2', 'value'),
     State('county_selector_tab2', 'value'),
@@ -1859,30 +1889,30 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
     # BEFORE FIRST CLICK: show a blank‐centered “dot”
     if not n_clicks:
         radius_px = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
-        fig = px.density_mapbox(
+        fig = px.density_map(
             pd.DataFrame(default_center, index=[0]),
             lat='lat', lon='lon',
             radius=radius_px,
             center=default_center, zoom=zoom,
-            mapbox_style="open-street-map", opacity=0.7
+            map_style="open-street-map", opacity=0.7
         )
         fig.update_layout(uirevision=key)
-        return fig, "Click 'Apply Filters' to see insights."
+        return fig
 
     # LOAD YOUR DATA
     df = get_county_data(counties_selected)
     if df.empty:
         # same blank‐dot fallback
         radius_px = convert_miles_to_pixels(radius_miles, zoom, default_center['lat'])
-        fig = px.density_mapbox(
+        fig = px.density_map(
             pd.DataFrame(default_center, index=[0]),
             lat='lat', lon='lon',
             radius=radius_px,
             center=default_center, zoom=zoom,
-            mapbox_style="open-street-map", opacity=0.7
+            map_style="open-street-map", opacity=0.7
         )
         fig.update_layout(uirevision=key)
-        return fig, "No data found for selected counties. Please adjust filters."
+        return fig
 
     # APPLY *exactly* the same filters as Tab1, *including* VRU sub‐type
     filtered = filter_data_tab1(
@@ -1892,24 +1922,6 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
         severity_category, crash_type,
         main_data_type, vru_data_type, 
     )
-
-    filters = {
-        "Heatmap Radius (0.1mi - 10mi)": radius_miles,
-        "Counties Selected": counties_selected,
-        "Main Data Type (All or VRU)": main_data_type,
-        "VRU Data Type (All, Bicycle, Pedestrian)": vru_data_type,
-        "Start Date": start_date,
-        "End Data": end_date,
-        "Time Range (12am - 11pm)": time_range,
-        "Days of the Week": days_of_week,
-        "Weather Condition": weather,
-        "Road Surface Condition": road_surface,
-        "Light Condition": light,
-        "Crash Type": crash_type,
-        "Severity Category": severity_category,
-    }
-
-    insights = get_insights(filters=filters, filtered_data=filtered, original_data=df)
 
     # COMPUTE CENTER
     if filtered.empty:
@@ -1926,14 +1938,14 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
     radius_px = convert_miles_to_pixels(radius_miles, zoom, center_lat)
 
     # BUILD THE DENSITY MAP
-    fig = px.density_mapbox(
+    fig = px.density_map(
         filtered,
         lat='Y_Coord', lon='X_Coord',
         radius=radius_px,
         center={'lat': center_lat, 'lon': center_lon},
         zoom=zoom,
-        mapbox_style="open-street-map",
-        opacity=0.7,
+        map_style="open-street-map",
+        opacity=0.5,
         hover_data={
             'Case_Number': True,
             'Crash_Date': True,
@@ -1944,7 +1956,7 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
         }
     )
     fig.update_layout(uirevision=key)
-    return fig, insights
+    return fig
 
 
 

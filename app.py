@@ -150,13 +150,10 @@ def load_data_final(file_path):
             chunk['Data_Type']  = chunk['Data_Type'].fillna('Non-VRU').str.upper()
             chunk['Crash_Type'] = chunk['Crash_Type'].fillna('Unknown').str.upper()
 
-            # Sex isn't in the CSV so we fill with Unknown
-            chunk['Sex'] = 'Unknown'
-
             # Reorder so SeverityCategory is at the end
             chunk = chunk[
                 ['Case_Number','X_Coord','Y_Coord','Crash_Date','Crash_Time',
-                 'Sex','WeatherCon','LightCon','RoadSurfac','Data_Type',
+                 'WeatherCon','LightCon','RoadSurfac','Data_Type',
                  'County','Crash_Type','SeverityCategory']
             ]
 
@@ -164,7 +161,7 @@ def load_data_final(file_path):
 
         df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame(columns=[
             'Case_Number','X_Coord','Y_Coord','Crash_Date','Crash_Time',
-            'Sex','WeatherCon','LightCon','RoadSurfac','Data_Type',
+            'WeatherCon','LightCon','RoadSurfac','Data_Type',
             'County','Crash_Type','SeverityCategory'
         ])
 
@@ -175,7 +172,7 @@ def load_data_final(file_path):
         logger.error(f"Error loading Data_Final.csv: {e}")
         return pd.DataFrame(columns=[
             'Case_Number','X_Coord','Y_Coord','Crash_Date','Crash_Time',
-            'Sex','WeatherCon','LightCon','RoadSurfac','Data_Type',
+            'WeatherCon','LightCon','RoadSurfac','Data_Type',
             'County','Crash_Type','SeverityCategory'
         ])
 
@@ -193,7 +190,7 @@ def load_all_data_optimized(data_final_file, counties):
     """
     data_by_county = {county: pd.DataFrame(columns=[
         'Case_Number', 'X_Coord', 'Y_Coord', 'Crash_Date',
-        'Crash_Time', 'Sex', 'WeatherCon', 'LightCon', 'RoadSurfac', 'Data_Type', 'County'
+        'Crash_Time', 'WeatherCon', 'LightCon', 'RoadSurfac', 'Data_Type', 'County'
     ]) for county in counties}
 
     # Load and preprocess Data_Final.csv once
@@ -353,7 +350,7 @@ def convert_miles_to_pixels(miles, zoom, center_latitude):
     return pixel_radius
 
 def filter_data_tab1(df, start_date, end_date, time_range, days_of_week,
-                     gender, weather, light, road_surface,
+                     weather, light, road_surface,
                      severity_category, crash_type,
                      main_data_type, vru_data_type):    
     if start_date and end_date:
@@ -364,9 +361,7 @@ def filter_data_tab1(df, start_date, end_date, time_range, days_of_week,
     # Day of week filtering
     if days_of_week:
         df = df[df['Crash_Date'].dt.day_name().isin(days_of_week)]
-    # Gender, Weather, Light, and Road Surface filtering
-    if gender != 'All':
-        df = df[df['Sex'] == gender]
+    # Weather, Light, and Road Surface filtering
     if weather != 'All':
         df = df[df['WeatherCon'] == weather]
     if light != 'All':
@@ -506,18 +501,6 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
             labelStyle={'display': 'inline-block', 'margin-right': '5px', 'font-size': '12px'},
             style={'margin-top': '10px'}
         ),
-        html.Label('Select Gender:', style={'margin-top': '20px'}),
-        dcc.RadioItems(
-            id=f'gender_selector_{prefix}',
-            options=[
-                {'label': 'All', 'value': 'All'},
-                {'label': 'Male', 'value': 'Male'},
-                {'label': 'Female', 'value': 'Female'},
-                {'label': 'Other', 'value': 'Other'}
-            ],
-            value='All',
-            labelStyle={'display': 'inline-block', 'margin-right': '10px'}
-        ),
         html.Label('Select Weather Condition:', style={'margin-top': '20px'}),
         dcc.Dropdown(
             id=f'weather_selector_{prefix}',
@@ -564,15 +547,6 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
             value='All',
             placeholder='Select severity category',
             style={'width': '100%'}
-        ),
-                html.Label('Crash Type:', style={'margin-top': '20px'}),
-        dcc.Dropdown(
-            id=f'crash_type_selector_{prefix}',
-            options=[{'label':'All','value':'All'}] +
-                    [{'label': t, 'value': t} for t in unique_crash_types],
-            value='All',
-            placeholder='Select crash type',
-            style={'width':'100%'}
         ),
     ]
     
@@ -1717,7 +1691,6 @@ def update_comparison_graph(refresh, model_file, selected_counties, editable_gpk
         State('date_picker_tab1', 'end_date'),
         State('time_slider_tab1', 'value'),
         State('day_of_week_checklist_tab1', 'value'),
-        State('gender_selector_tab1', 'value'),
         State('weather_selector_tab1', 'value'),
         State('light_selector_tab1', 'value'),
         State('road_surface_selector_tab1', 'value'),
@@ -1729,7 +1702,7 @@ def update_comparison_graph(refresh, model_file, selected_counties, editable_gpk
 )
 def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
              start_date, end_date, time_range, days_of_week,
-             gender, weather, light, road_surface, severity_category, main_data_type, vru_data_type, crash_type):
+            weather, light, road_surface, severity_category, main_data_type, vru_data_type, crash_type):
     ctx = callback_context
     triggered = (
         ctx.triggered[0]['prop_id'].split('.')[0]
@@ -1764,7 +1737,7 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
     if triggered == 'apply_filter_tab1':
         filtered = filter_data_tab1(
             df, start_date, end_date, time_range,
-            days_of_week, gender, weather, light, road_surface,  severity_category, crash_type,
+            days_of_week, weather, light, road_surface,  severity_category, crash_type,
             main_data_type, vru_data_type, 
         )
         if selected_data and 'points' in selected_data:
@@ -1779,7 +1752,7 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         # reapply filters but drop box selection
         df_to_plot = filter_data_tab1(
             df, start_date, end_date, time_range,
-            days_of_week, gender, weather, light, road_surface, severity_category,
+            days_of_week, weather, light, road_surface, severity_category,
             main_data_type, vru_data_type, crash_type
         )
         out_selected = None
@@ -1788,7 +1761,7 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         df_to_plot = filter_data_tab1(
             df, '1900-01-01', '1901-01-01', [0, 23],
             ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
-            'All','All','All', 'All', 'All', 'All',
+            'All','All','All', 'All', 'All',
             main_data_type, vru_data_type
         )
         out_selected = None
@@ -1828,7 +1801,6 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         State('date_picker_tab1', 'end_date'),
         State('time_slider_tab1', 'value'),
         State('day_of_week_checklist_tab1', 'value'),
-        State('gender_selector_tab1', 'value'),
         State('weather_selector_tab1', 'value'),
         State('light_selector_tab1', 'value'),
         State('road_surface_selector_tab1', 'value'),
@@ -1838,7 +1810,7 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
     ]
 )
 def download_filtered_data_tab1(n_clicks, counties_selected, start_date, end_date, time_range, days_of_week,
-                                gender, weather, light, road_surface, main_data_type, vru_data_type, selected_data):
+                                weather, light, road_surface, main_data_type, vru_data_type, selected_data):
     if n_clicks > 0:
         try:
             # Load full data for the selected counties.
@@ -1850,7 +1822,7 @@ def download_filtered_data_tab1(n_clicks, counties_selected, start_date, end_dat
             # Apply the same filters as in update_map_tab1.
             filtered_df = filter_data_tab1(
                 df, start_date, end_date, time_range,
-                days_of_week, gender, weather, light, road_surface,
+                days_of_week, weather, light, road_surface,
                 main_data_type, vru_data_type
             )
 
@@ -1900,7 +1872,6 @@ def filter_data_tab2(df, data_type):
     State('date_picker_tab2', 'end_date'),
     State('time_slider_tab2', 'value'),
     State('day_of_week_checklist_tab2', 'value'),
-    State('gender_selector_tab2', 'value'),
     State('weather_selector_tab2', 'value'),
     State('light_selector_tab2', 'value'),
     State('road_surface_selector_tab2', 'value'),
@@ -1910,7 +1881,7 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
                         main_data_type, vru_data_type,
                         severity_category,
                         start_date, end_date, time_range,
-                        days_of_week, gender, weather, light, road_surface, crash_type):
+                        days_of_week, weather, light, road_surface, crash_type):
     zoom = 10
     default_center = {'lat': 40.7128, 'lon': -74.0060}
     key = 'tab2-' + '-'.join(sorted(counties_selected or []))
@@ -1947,7 +1918,7 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
     filtered = filter_data_tab1(
         df,
         start_date, end_date, time_range,
-        days_of_week, gender, weather, light, road_surface,
+        days_of_week, weather, light, road_surface,
         severity_category, crash_type,
         main_data_type, vru_data_type, 
     )

@@ -20,7 +20,8 @@ from analyzer.analyzer import get_insights
 
 DEFAULT_PRED_FILES = {
     'AI.py':  './AI/Large_DataSet2.25_with_predictions.gpkg',
-    'AI2.py': './AI/Rename_DataSet2.25_with_gwr_predictions.gpkg'
+    'AI2.py': './AI/Rename_DataSet2.25_with_gwr_predictions.gpkg',
+    'mgwr_predict.py': './MGWR/merged_with_mgwr_predictions.gpkg'
 }
 
 # ----------------------------
@@ -34,25 +35,58 @@ logger = logging.getLogger(__name__)
 # ----------------------------
 
 
-def copy_county_gpkg(county, source_gpkg='./AI/Large_DataSet2.25_with_predictions.gpkg', dest_folder='./AI/'):
+def copy_county_gpkg(county, source_gpkg, dest_folder):
+    """
+    Extract just one county’s features into a new editable GPKG,
+    filtering on CNTY_NAME or CountyName as available.
+    """
     try:
         gdf = gpd.read_file(source_gpkg)
-        # Standardize CNTY_NAME by removing the trailing " County"
-        gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
-        county_gdf = gdf[gdf['CNTY_NAME'] == county]
-        if county_gdf.empty:
-            logger.error(f"No data found for county: {county}")
+
+        # figure out which county column to use
+        if 'CNTY_NAME' in gdf.columns:
+            col = 'CNTY_NAME'
+            gdf[col] = (
+                gdf[col]
+                   .str.replace(" County", "", regex=False)
+                   .str.strip()
+                   .str.title()
+            )
+        elif 'CountyName' in gdf.columns:
+            col = 'CountyName'
+            gdf[col] = (
+                gdf[col]
+                   .str.replace(" County", "", regex=False)
+                   .str.strip()
+                   .str.title()
+            )
+        else:
+            logger.error(f"No CNTY_NAME or CountyName column in {source_gpkg}")
             raise PreventUpdate
-        # Add an 'id' column for later matching
+
+        # filter to just that county
+        county_gdf = gdf[gdf[col] == county]
+        if county_gdf.empty:
+            logger.error(f"No data found for county: {county} in {source_gpkg}")
+            raise PreventUpdate
+
+        # ensure an 'id' column for downstream callbacks
         county_gdf = county_gdf.copy()
-        county_gdf['id'] = county_gdf.index.astype(str)
+        if 'id' not in county_gdf.columns:
+            county_gdf['id'] = county_gdf.index.astype(str)
+
+        # write out the editable file
         dest_file = os.path.join(dest_folder, f"{county}_editable.gpkg")
         county_gdf.to_file(dest_file, driver='GPKG')
         logger.debug(f"Created editable GPkg for {county} at {dest_file}")
         return dest_file
+
+    except PreventUpdate:
+        raise
     except Exception as e:
         logger.error(f"Error copying GPkg for county {county}: {e}")
         raise PreventUpdate
+
 
     
 def standardize_county_name(name):
@@ -685,6 +719,11 @@ app.layout = html.Div([
     dcc.Store(id='editable_gpkg_path'),
     dcc.Store(id='selected_census_tract'),
     dcc.Store(id='predictions_refresh', data=0),
+    html.Button(
+        id='refresh_predictions_tab4',
+        n_clicks=0,
+        style={'display': 'none'}
+    ),
     dcc.Dropdown(
     id='model_selector_tab4',
     options=[
@@ -1161,6 +1200,7 @@ def render_content(tab):
                     options=[
                         {'label': 'ForestISO',     'value': 'AI.py'},
                         {'label': 'GWR (local)',  'value': 'AI2.py'},
+                        {'label': 'MGWR Model',   'value': 'mgwr_predict.py'},
                     ],
                     value='AI.py',
                     clearable=False,
@@ -1578,6 +1618,8 @@ def update_comparison_graph(refresh, model_file, selected_counties, editable_gpk
     # choose GPKG & suffix exactly as in update_predictions_map
     if model_file == "AI2.py":
         suffix, default_file = "_with_gwr_predictions", DEFAULT_PRED_FILES['AI2.py']
+    elif model_file == "mgwr_predict.py":
+        suffix, default_file = "_with_mgwr_predictions", DEFAULT_PRED_FILES['mgwr_predict.py']
     else:
         suffix, default_file = "_with_predictions",     DEFAULT_PRED_FILES['AI.py']
 
@@ -1590,16 +1632,24 @@ def update_comparison_graph(refresh, model_file, selected_counties, editable_gpk
 
     # load it
     gdf = gpd.read_file(gpkg_file)
-    # standardize and filter counties
-    if 'CNTY_NAME' in gdf.columns:
-        gdf['CNTY_NAME'] = (
-            gdf['CNTY_NAME']
-               .str.replace(" County", "", regex=False)
-               .str.strip()
-               .str.title()
-        )
+
+    # only normalize & filter by CNTY_NAME if that column actually exists
     if selected_counties:
-        gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+        # First try the AI/GWR style
+        if 'CNTY_NAME' in gdf.columns:
+            gdf['CNTY_NAME'] = (
+                gdf['CNTY_NAME']
+                .str.replace(" County", "", regex=False)
+                .str.strip()
+                .str.title()
+            )
+            gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+
+        # Fallback to the MGWR style
+        elif 'CountyName' in gdf.columns:
+            # Standardize casing just in case
+            gdf['CountyName'] = gdf['CountyName'].str.strip().str.title()
+            gdf = gdf[gdf['CountyName'].isin(selected_counties)]
 
     # ensure Prediction column exists
     if 'Prediction' not in gdf.columns:
@@ -2147,11 +2197,11 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
 
     # pick which gpkg & column
     if model_file == "AI2.py":
-        suffix, pred_col = "_with_gwr_predictions", "GWR_Prediction"
-        default_file = DEFAULT_PRED_FILES['AI2.py']
+        suffix, pred_col, default_file = "_with_gwr_predictions",  "GWR_Prediction", DEFAULT_PRED_FILES['AI2.py']
+    elif model_file == "mgwr_predict.py":
+        suffix, pred_col, default_file = "_with_mgwr_predictions", "MGWR_Prediction", DEFAULT_PRED_FILES['mgwr_predict.py']
     else:
-        suffix, pred_col = "_with_predictions", "Prediction"
-        default_file = DEFAULT_PRED_FILES['AI.py']
+        suffix, pred_col, default_file = "_with_predictions",     "Prediction",      DEFAULT_PRED_FILES['AI.py']
 
     # decide which file to load
     if editable_gpkg_path:
@@ -2168,15 +2218,29 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         gdf['Prediction'] = gdf[pred_col]
 
         # normalize county names & filter
-        if 'CNTY_NAME' in gdf:
-            gdf['CNTY_NAME'] = (
-                gdf['CNTY_NAME']
-                   .str.replace(" County", "", regex=False)
-                   .str.strip()
-                   .str.title()
-            )
+        # ——— filter by selected_counties, using whichever county field exists ———
         if selected_counties:
-            gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+            # AI/GWR outputs
+            if 'CNTY_NAME' in gdf.columns:
+                gdf['CNTY_NAME'] = (
+                    gdf['CNTY_NAME']
+                       .str.replace(" County", "", regex=False)
+                       .str.strip()
+                       .str.title()
+                )
+                gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+
+            # MGWR outputs use CountyName
+            elif 'CountyName' in gdf.columns:
+                gdf['CountyName'] = (
+                    gdf['CountyName']
+                       .str.replace(" County", "", regex=False)
+                       .str.strip()
+                       .str.title()
+                )
+                gdf = gdf[gdf['CountyName'].isin(selected_counties)]
+
+            # else: no county column, so skip filtering entirely
 
         valid   = gdf[~gdf['Prediction'].isna()]
         missing = gdf[ gdf['Prediction'].isna()]
@@ -2591,11 +2655,19 @@ def update_modal_values(
     
 @app.callback(
     Output('county_selector_tab4', 'options'),
-    Input('refresh_predictions_tab4', 'n_clicks')
+    [
+        Input('refresh_predictions_tab4', 'n_clicks'),
+        Input('model_selector_tab4',    'value')
+    ]
 )
-def update_county_options(n_clicks):
+def update_county_options(n_clicks, model_file):
     try:
-        gpkg_file = './AI/Large_DataSet2.25_with_predictions.gpkg'
+        if model_file == "AI2.py":
+            gpkg_file = DEFAULT_PRED_FILES['AI2.py']
+        elif model_file == "MGWR.py":
+            gpkg_file = DEFAULT_PRED_FILES['MGWR.py']
+        else:
+            gpkg_file = DEFAULT_PRED_FILES['AI.py']
         gdf = gpd.read_file(gpkg_file)
         # Log the original column values for debugging
         logger.debug("Original CNTY_NAME values: " + str(gdf['CNTY_NAME'].unique()))
@@ -2760,9 +2832,24 @@ def update_editable_gpkg_and_predictions(
     # 1) New county selected → create an editable GPKG
     if triggered == 'county_selector_tab4':
         if county_selector_value and len(county_selector_value) == 1:
-            return copy_county_gpkg(county_selector_value[0]), current_refresh
+            county = county_selector_value[0]
+
+            # Pick source gpkg & dest folder per model
+            if model_file == 'AI2.py':
+                source = DEFAULT_PRED_FILES['AI2.py']
+                dest = './AI/'
+            elif model_file == 'mgwr_predict.py':
+                source = DEFAULT_PRED_FILES['mgwr_predict.py']
+                dest = './MGWR/'
+            else:  # AI.py
+                source = DEFAULT_PRED_FILES['AI.py']
+                dest = './AI/'
+
+            # copy that county out of the right gpkg
+            return copy_county_gpkg(county, source_gpkg=source, dest_folder=dest), current_refresh
         else:
             raise PreventUpdate
+
 
     # 2) Apply updates to the tract and re‐run the model
     elif triggered == 'apply_updated_data':
@@ -2804,10 +2891,19 @@ def update_editable_gpkg_and_predictions(
             gdf.to_file(gpkg_path, driver="GPKG")
 
             # re‐run the selected model script
-            import sys, subprocess
+            import sys
             base, ext = os.path.splitext(gpkg_path)
-            suffix = '_with_gwr_predictions' if model_file == 'AI2.py' else '_with_predictions'
+
+            # choose suffix per model
+            if model_file == 'AI2.py':
+                suffix = '_with_gwr_predictions'
+            elif model_file == 'mgwr_predict.py':
+                suffix = '_with_mgwr_predictions'
+            else:  # AI.py
+                suffix = '_with_predictions'
+
             output_file = f"{base}{suffix}{ext}"
+
             try:
                 subprocess.run(
                     [sys.executable, model_file, gpkg_path, output_file],
@@ -2817,7 +2913,6 @@ def update_editable_gpkg_and_predictions(
                 raise PreventUpdate
 
             return gpkg_path, (current_refresh or 0) + 1
-
         else:
             raise PreventUpdate
 
@@ -2860,7 +2955,9 @@ def store_original_prediction(tract_id, model_file, gpkg_path):
 
     # pick suffix + column
     if model_file == "AI2.py":
-        suffix, col = "_with_gwr_predictions", "GWR_Prediction"
+        suffix, col = "_with_gwr_predictions",  "GWR_Prediction"
+    elif model_file == "mgwr_predict.py":
+        suffix, col = "_with_mgwr_predictions", "MGWR_Prediction"
     else:
         suffix, col = "_with_predictions",     "Prediction"
 
@@ -2872,12 +2969,15 @@ def store_original_prediction(tract_id, model_file, gpkg_path):
         gdf = gpd.read_file(county_pred)
     else:
         gdf = gpd.read_file(DEFAULT_PRED_FILES[model_file])
-
+    # if the prediction column itself is missing, bail out
     if col not in gdf.columns:
-        # nothing to store yet
         return None
 
-    return gdf.loc[gdf['id'] == tract_id, col].iloc[0]
+    # in store_original_prediction
+    subset = gdf.loc[gdf['id'].astype(str) == str(tract_id), col]
+    if subset.empty:
+        return None
+    return subset.iloc[0]
 
 # Single callback to drive the prediction bar for both ForestISO and GWR
 @app.callback(
@@ -2899,9 +2999,11 @@ def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_pat
 
     # choose file suffix and column name based on model
     if model_file == "AI2.py":
-        suffix, col = "_with_gwr_predictions", "GWR_Prediction"
+        suffix, col = "_with_gwr_predictions",  "GWR_Prediction"
+    elif model_file == "mgwr_predict.py":
+        suffix, col = "_with_mgwr_predictions", "MGWR_Prediction"
     else:
-        suffix, col = "_with_predictions", "Prediction"
+        suffix, col = "_with_predictions",     "Prediction"
 
     base, ext = os.path.splitext(gpkg_path)
     county_pred_file = f"{base}{suffix}{ext}"

@@ -38,7 +38,7 @@ def generate_crash_data_summary(df: pd.DataFrame) -> dict:
     summary["road_surface_conditions"] = df["RoadSurfac"].value_counts().to_dict()
 
     # Demographic info
-    summary["sex_distribution"] = df["Sex"].value_counts().to_dict()
+    #summary["sex_distribution"] = df["Sex"].value_counts().to_dict()
 
     # Geospatial spread
     summary["x_coord_range"] = [df["X_Coord"].min(), df["X_Coord"].max()]

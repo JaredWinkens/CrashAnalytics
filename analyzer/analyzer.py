@@ -2,54 +2,25 @@ import concurrent.futures
 from google import genai
 from google.genai import types
 from google.genai.errors import ServerError
-from analyzer.analyzer_config import *
 import pandas as pd
 from pydantic import BaseModel
+import json
+
+# load config settings
+config_file = open("config.json", "r")
+config = json.load(config_file)
+API_KEY = config['general']['api_key'] 
+GEN_MODEL = config['models']['2.0-flash']
 
 client = genai.Client(api_key=API_KEY)
 
-import pandas as pd
+ANALYZER_ROLE = """
+You are a traffic safety analyst. 
 
-def generate_crash_data_summary(df: pd.DataFrame) -> dict:
-    summary = {}
+Keep your analysis brief (aim for ~300 tokens).
 
-    # Basic shape and missing values
-    summary["row_count"] = len(df)
-    summary["column_count"] = len(df.columns)
-    summary["missing_values"] = df.isnull().sum().to_dict()
-
-    # Temporal analysis
-    df['Crash_Date'] = pd.to_datetime(df['Crash_Date'], errors='coerce')
-    summary["crashes_by_year"] = df['Crash_Date'].dt.year.value_counts().sort_index().to_dict()
-    summary["crashes_by_month"] = df['Crash_Date'].dt.month.value_counts().sort_index().to_dict()
-    summary["crashes_by_dayofweek"] = df['Crash_Date'].dt.day_name().value_counts().to_dict()
-
-    # Crash time distribution
-    summary["crashes_by_hour"] = pd.to_numeric(df["Crash_Time"], errors="coerce").dropna().astype(int).value_counts().sort_index().to_dict()
-
-    # Severity breakdown
-    summary["severity_distribution"] = df["SeverityCategory"].value_counts().to_dict()
-
-    # Crash type breakdown
-    summary["crash_type_distribution"] = df["Crash_Type"].value_counts().to_dict()
-
-    # Environmental conditions
-    summary["weather_conditions"] = df["WeatherCon"].value_counts().to_dict()
-    summary["light_conditions"] = df["LightCon"].value_counts().to_dict()
-    summary["road_surface_conditions"] = df["RoadSurfac"].value_counts().to_dict()
-
-    # Demographic info
-    summary["sex_distribution"] = df["Sex"].value_counts().to_dict()
-
-    # Geospatial spread
-    summary["x_coord_range"] = [df["X_Coord"].min(), df["X_Coord"].max()]
-    summary["y_coord_range"] = [df["Y_Coord"].min(), df["Y_Coord"].max()]
-    summary["crash_density_centroid"] = {
-        "x": df["X_Coord"].mean(),
-        "y": df["Y_Coord"].mean()
-    }
-
-    return summary
+Prioritize clarity, brevity, and practical observations.
+"""
 
 def call_with_timeout(func, timeout, *args, **kwargs):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -72,19 +43,19 @@ def get_insights(image_bytes) -> str:
 class Insight(BaseModel):
     key_hotspots: str
     observed_patterns: str
-    inferred_cuases: str
+    inferred_causes: str
 
 def format_response(response: Insight) -> str:
     return f"""
     - **Key Hotspots:** {response.key_hotspots}\n\n
     - **Observed Patterns:** {response.observed_patterns}\n\n
-    - **Inferred Cuases:** {response.inferred_cuases}\n\n
+    - **Inferred Causes:** {response.inferred_causes}\n\n
     """
 
 def generate_response(image) -> str:
     try:
         response = client.models.generate_content(
-            model=MODEL,
+            model=GEN_MODEL,
             config=types.GenerateContentConfig(
                 system_instruction=ANALYZER_ROLE,
                 temperature=0,

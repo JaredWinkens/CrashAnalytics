@@ -6,6 +6,7 @@ import plotly.io as pio
 import plotly.graph_objects as go  
 import pandas as pd
 import os
+import sys
 import logging
 from flask_caching import Cache
 from dash.exceptions import PreventUpdate
@@ -20,9 +21,163 @@ import chatbot.chatbot as chatbotv1
 import chatbot.chatbot_v2 as chatbotv2
 import analyzer.analyzer as analyzer
 
+# all editable fields for prediction tab
+ALL_FIELDS = [
+    ("DEMOGIDX_5",     "Demographic Index (5-yr ACS)",        0.01),
+    ("PEOPCOLORPCT",   "People of Color (%)",                0.01),
+    ("UNEMPPCT",       "Unemployment Rate (%)",             0.01),
+    ("pct_residential","Residential Land Use (%)",          0.01),
+    ("pct_industrial", "Industrial Land Use (%)",           0.01),
+    ("pct_retail",     "Retail Land Use (%)",               0.01),
+    ("pct_commercial", "Commercial Land Use (%)",           0.01),
+    ("AADT",           "Annual Average Daily Traffic",       0.01),
+    ("Commute_TripMiles_TripStart_avg","Avg Commute Distance (Start, mi)",0.01),
+    ("Commute_TripMiles_TripEnd_avg",  "Avg Commute Distance (End, mi)",  0.01),
+    ("ACSTOTPOP",      "Total Population (ACS)",             1),
+    ("DEMOGIDX_2",     "Demographic Index (2-yr ACS)",      0.01),
+    ("PovertyPop",     "Poverty Population",                 1),
+    ("DISABILITYPCT",  "Disability (%)",                     0.01),
+    ("BikingTrips(Start)","Biking Trips (Start)",           1),
+    ("BikingTrips(End)",  "Biking Trips (End)",             1),
+    ("CarpoolTrips(Start)","Carpool Trips (Start)",         1),
+    ("CarpoolTrips(End)",  "Carpool Trips (End)",           1),
+    ("CommercialFreightTrips(Start)","Commercial Freight Trips (Start)",1),
+    ("CommercialFreightTrips(End)",  "Commercial Freight Trips (End)", 1),
+    ("WalkingTrips(Start)",          "Walking Trips (Start)",        1),
+    ("WalkingTrips(End)",            "Walking Trips (End)",          1),
+    ("PublicTransitTrips(Start)",    "Public Transit Trips (Start)",1),
+    ("PublicTransitTrips(End)",      "Public Transit Trips (End)",   1),
+    ("AvgCommuteMiles(Start)",       "Avg Commute Miles (Start)",    0.01),
+    ("AvgCommuteMiles(End)",         "Avg Commute Miles (End)",      0.01),
+    ("BikingWalkingMiles(Start)",    "Biking & Walking Miles (Start)",0.01),
+    ("BikingWalkingMiles(End)",      "Biking & Walking Miles (End)", 0.01),
+]
+
+#quick lookup dicts
+LABELS = { var: label for var, label, step in ALL_FIELDS }
+STEPS  = { var: step  for var, label, step in ALL_FIELDS }
+
+# region key for mgwr cause a better way eludes me
+REGION_FIELDS = {
+    "A": [
+        "UNEMPPCT",
+        "pct_residential",
+        "pct_industrial",
+        "pct_retail",
+        "pct_commercial",
+        "AADT",
+        "BikingTrips(Start)",
+        "BikingTrips(End)",
+        "CarpoolTrips(Start)",
+        "PublicTransitTrips(Start)",
+        "PublicTransitTrips(End)",
+        "AvgCommuteMiles(Start)"
+    ],
+    "B": [
+        "PEOPCOLORPCT",
+        "UNEMPPCT",
+        "pct_residential",
+        "pct_industrial",
+        "pct_retail",
+        "pct_commercial",
+        "AADT",
+        "BikingWalkingMiles(Start)",
+        "BikingTrips(Start)",
+        "WalkingTrips(End)",
+        "PublicTransitTrips(Start)",
+        "AvgCommuteMiles(End)"
+    ],
+    "C": [
+        "UNEMPPCT",
+        "pct_residential",
+        "pct_industrial",
+        "pct_retail",
+        "pct_commercial",
+        "AADT",
+        "BikingWalkingMiles(Start)",
+        "BikingTrips(Start)",
+        "WalkingTrips(End)",
+        "PublicTransitTrips(End)",
+        "AvgCommuteMiles(Start)"
+    ],
+    "D": [
+        "PEOPCOLORPCT",
+        "pct_residential",
+        "pct_industrial",
+        "pct_retail",
+        "pct_commercial",
+        "AADT",
+        "BikingWalkingMiles(Start)",
+        "BikingWalkingMiles(End)",
+        "BikingTrips(Start)",
+        "BikingTrips(End)",
+        "CarpoolTrips(End)",
+        "PublicTransitTrips(End)",
+        "AvgCommuteMiles(Start)"
+    ],
+    "E": [
+        "PEOPCOLORPCT",
+        "UNEMPPCT",
+        "pct_residential",
+        "pct_industrial",
+        "pct_retail",
+        "pct_commercial",
+        "AADT",
+        "BikingWalkingMiles(Start)",
+        "BikingWalkingMiles(End)",
+        "BikingTrips(Start)",
+        "WalkingTrips(Start)",
+        "PublicTransitTrips(Start)",
+        "AvgCommuteMiles(End)"
+    ],
+    "FG": [
+        "UNEMPPCT",
+        "pct_residential",
+        "pct_industrial",
+        "pct_retail",
+        "pct_commercial",
+        "AADT",
+        "BikingWalkingMiles(Start)",
+        "BikingWalkingMiles(End)",
+        "BikingTrips(Start)",
+        "BikingTrips(End)",
+        "PublicTransitTrips(Start)",
+        "PublicTransitTrips(End)",
+        "AvgCommuteMiles(End)"
+    ],
+    "HIJ": [
+        "UNEMPPCT",
+        "DISABILITYPCT",
+        "pct_residential",
+        "pct_industrial",
+        "pct_retail",
+        "pct_commercial",
+        "AADT",
+        "BikingWalkingMiles(Start)",
+        "BikingTrips(Start)",
+        "BikingTrips(End)",
+        "CarpoolTrips(Start)",
+        "CarpoolTrips(End)",
+        "PublicTransitTrips(Start)",
+        "PublicTransitTrips(End)"
+    ]
+}
+
+
+# helper to build a single field‐row
+def make_field_row(var_id, label, step):
+    return html.Div([
+        html.Label(label, style={'fontSize':'12px','marginRight':'5px'}),
+        dcc.Input(id=f"input_{var_id}", type="number", value=0, step=step, style={'width':'80px','fontSize':'12px'}),
+        html.Button("+", id=f"plus_input_{var_id}", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
+        html.Button("–", id=f"minus_input_{var_id}", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'})
+    ], id=f"container_{var_id}", style={'marginBottom':'10px'}
+)
+
 DEFAULT_PRED_FILES = {
     'AI.py':  './AI/Large_DataSet2.25_with_predictions.gpkg',
-    'AI2.py': './AI/Rename_DataSet2.25_with_gwr_predictions.gpkg'
+    'AI2.py': './AI/Rename_DataSet2.25_with_gwr_predictions.gpkg',
+    'mgwr_predict.py': './MGWR/merged_with_mgwr_predictions.gpkg'
 }
 
 # ----------------------------
@@ -36,25 +191,58 @@ logger = logging.getLogger(__name__)
 # ----------------------------
 
 
-def copy_county_gpkg(county, source_gpkg='./AI/Large_DataSet2.25_with_predictions.gpkg', dest_folder='./AI/'):
+def copy_county_gpkg(county, source_gpkg, dest_folder):
+    """
+    Extract just one county’s features into a new editable GPKG,
+    filtering on CNTY_NAME or CountyName as available.
+    """
     try:
         gdf = gpd.read_file(source_gpkg)
-        # Standardize CNTY_NAME by removing the trailing " County"
-        gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
-        county_gdf = gdf[gdf['CNTY_NAME'] == county]
-        if county_gdf.empty:
-            logger.error(f"No data found for county: {county}")
+
+        # figure out which county column to use
+        if 'CNTY_NAME' in gdf.columns:
+            col = 'CNTY_NAME'
+            gdf[col] = (
+                gdf[col]
+                   .str.replace(" County", "", regex=False)
+                   .str.strip()
+                   .str.title()
+            )
+        elif 'CountyName' in gdf.columns:
+            col = 'CountyName'
+            gdf[col] = (
+                gdf[col]
+                   .str.replace(" County", "", regex=False)
+                   .str.strip()
+                   .str.title()
+            )
+        else:
+            logger.error(f"No CNTY_NAME or CountyName column in {source_gpkg}")
             raise PreventUpdate
-        # Add an 'id' column for later matching
+
+        # filter to just that county
+        county_gdf = gdf[gdf[col] == county]
+        if county_gdf.empty:
+            logger.error(f"No data found for county: {county} in {source_gpkg}")
+            raise PreventUpdate
+
+        # ensure an 'id' column for downstream callbacks
         county_gdf = county_gdf.copy()
-        county_gdf['id'] = county_gdf.index.astype(str)
+        if 'id' not in county_gdf.columns:
+            county_gdf['id'] = county_gdf.index.astype(str)
+
+        # write out the editable file
         dest_file = os.path.join(dest_folder, f"{county}_editable.gpkg")
         county_gdf.to_file(dest_file, driver='GPKG')
         logger.debug(f"Created editable GPkg for {county} at {dest_file}")
         return dest_file
+
+    except PreventUpdate:
+        raise
     except Exception as e:
         logger.error(f"Error copying GPkg for county {county}: {e}")
         raise PreventUpdate
+
 
     
 def standardize_county_name(name):
@@ -687,209 +875,50 @@ app.layout = html.Div([
     dcc.Store(id='editable_gpkg_path'),
     dcc.Store(id='selected_census_tract'),
     dcc.Store(id='predictions_refresh', data=0),
-    dcc.Dropdown(
-    id='model_selector_tab4',
-    options=[
-        {'label': 'ForestISO', 'value': 'AI.py'},
-        {'label': 'GWR Model',  'value': 'AI2.py'}
-    ],
-    value='AI.py',
-    clearable=False,
-    style={'display': 'none'}    # hidden placeholder
-),
+    html.Button(
+        id='refresh_predictions_tab4',
+        n_clicks=0,
+        style={'display': 'none'}
+    ),
     
     html.Div(
     html.Button('Edit Selected Census Tract', id='open_edit_modal', n_clicks=0),
     style={'display': 'none'}
 ),
-    
-    html.Div(
-    dcc.Dropdown(id='county_selector_tab4', options=[], value=[], multi=True),
-    style={'display': 'none'}
-),
+
 
 # Modal for editing county data:
 html.Div(
     id='county_edit_modal',
     children=[
         html.H3("Edit County Data"),
-
+        html.Div(
+            id="modal_fields_container",
+            children=[
+                make_field_row(var, LABELS[var], STEPS[var])
+                for var, _, _ in ALL_FIELDS
+            ]
+        ),
         html.Div([
-            html.Label("Demographic Index (5-yr ACS)"),
-            dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_DEMOGIDX_5", n_clicks=0),
-            html.Button("–", id="minus_input_DEMOGIDX_5", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("People of Color (%)"),
-            dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_PEOPCOLORPCT", n_clicks=0),
-            html.Button("–", id="minus_input_PEOPCOLORPCT", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Unemployment Rate (%)"),
-            dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_UNEMPPCT", n_clicks=0),
-            html.Button("–", id="minus_input_UNEMPPCT", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Residential Land Use (%)"),
-            dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_pct_residential", n_clicks=0),
-            html.Button("–", id="minus_input_pct_residential", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Industrial Land Use (%)"),
-            dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_pct_industrial", n_clicks=0),
-            html.Button("–", id="minus_input_pct_industrial", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Retail Land Use (%)"),
-            dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_pct_retail", n_clicks=0),
-            html.Button("–", id="minus_input_pct_retail", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Commercial Land Use (%)"),
-            dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_pct_commercial", n_clicks=0),
-            html.Button("–", id="minus_input_pct_commercial", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Annual Average Daily Traffic"),
-            dcc.Input(id="input_AADT", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_AADT", n_clicks=0),
-            html.Button("–", id="minus_input_AADT", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Avg Commute Distance (Start, mi)"),
-            dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_Commute_TripMiles_TripStart_avg", n_clicks=0),
-            html.Button("–", id="minus_input_Commute_TripMiles_TripStart_avg", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Avg Commute Distance (End, mi)"),
-            dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0),
-            html.Button("–", id="minus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Total Population (ACS)"),
-            dcc.Input(id="input_ACSTOTPOP", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_ACSTOTPOP", n_clicks=0),
-            html.Button("–", id="minus_input_ACSTOTPOP", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Demographic Index (2-yr ACS)"),
-            dcc.Input(id="input_DEMOGIDX_2", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_DEMOGIDX_2", n_clicks=0),
-            html.Button("–", id="minus_input_DEMOGIDX_2", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Poverty Population"),
-            dcc.Input(id="input_PovertyPop", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_PovertyPop", n_clicks=0),
-            html.Button("–", id="minus_input_PovertyPop", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Disability (%)"),
-            dcc.Input(id="input_DISABILITYPCT", type="number", value=0, step=0.01),
-            html.Button("+", id="plus_input_DISABILITYPCT", n_clicks=0),
-            html.Button("–", id="minus_input_DISABILITYPCT", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Biking Trips (Start)"),
-            dcc.Input(id="input_BikingTrips(Start)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_BikingTrips(Start)", n_clicks=0),
-            html.Button("–", id="minus_input_BikingTrips(Start)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Biking Trips (End)"),
-            dcc.Input(id="input_BikingTrips(End)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_BikingTrips(End)", n_clicks=0),
-            html.Button("–", id="minus_input_BikingTrips(End)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Carpool Trips (Start)"),
-            dcc.Input(id="input_CarpoolTrips(Start)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_CarpoolTrips(Start)", n_clicks=0),
-            html.Button("–", id="minus_input_CarpoolTrips(Start)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Carpool Trips (End)"),
-            dcc.Input(id="input_CarpoolTrips(End)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_CarpoolTrips(End)", n_clicks=0),
-            html.Button("–", id="minus_input_CarpoolTrips(End)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Commercial Freight Trips (Start)"),
-            dcc.Input(id="input_CommercialFreightTrips(Start)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_CommercialFreightTrips(Start)", n_clicks=0),
-            html.Button("–", id="minus_input_CommercialFreightTrips(Start)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Commercial Freight Trips (End)"),
-            dcc.Input(id="input_CommercialFreightTrips(End)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_CommercialFreightTrips(End)", n_clicks=0),
-            html.Button("–", id="minus_input_CommercialFreightTrips(End)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Walking Trips (Start)"),
-            dcc.Input(id="input_WalkingTrips(Start)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_WalkingTrips(Start)", n_clicks=0),
-            html.Button("–", id="minus_input_WalkingTrips(Start)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Walking Trips (End)"),
-            dcc.Input(id="input_WalkingTrips(End)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_WalkingTrips(End)", n_clicks=0),
-            html.Button("–", id="minus_input_WalkingTrips(End)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Public Transit Trips (Start)"),
-            dcc.Input(id="input_PublicTransitTrips(Start)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_PublicTransitTrips(Start)", n_clicks=0),
-            html.Button("–", id="minus_input_PublicTransitTrips(Start)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Div([
-            html.Label("Public Transit Trips (End)"),
-            dcc.Input(id="input_PublicTransitTrips(End)", type="number", value=0, step=1),
-            html.Button("+", id="plus_input_PublicTransitTrips(End)", n_clicks=0),
-            html.Button("–", id="minus_input_PublicTransitTrips(End)", n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-
-        # ───────── APPLY / RESET / CLOSE ─────────
-        html.Div([
-            html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0),
-            html.Button("Reset Predictions",    id="reset_predictions",  n_clicks=0),
-        ], style={'marginBottom':'10px'}),
-
-        html.Button("Close", id="close_modal", n_clicks=0)
+            html.Button(
+                "Apply Updated Data",
+                id="apply_updated_data",
+                n_clicks=0,
+                style={'marginRight': '10px'}
+            ),
+            #unused but do not remove or else everything breaks (i keep removing it)
+            html.Button(
+                "Reset Predictions",
+                id="reset_predictions",
+                n_clicks=0,
+                style={'marginRight': '10px'}
+            ),
+            html.Button(
+                "Close",
+                id="close_modal",
+                n_clicks=0
+            ),
+        ], style={'marginBottom': '10px', 'textAlign': 'center'})
     ],
     style={
         'display': 'none',
@@ -903,6 +932,7 @@ html.Div(
         'zIndex': 1000
     }
 )
+
 
 
 ])
@@ -1173,6 +1203,7 @@ def render_content(tab):
                     options=[
                         {'label': 'ForestISO',     'value': 'AI.py'},
                         {'label': 'GWR (local)',  'value': 'AI2.py'},
+                        {'label': 'MGWR Model',   'value': 'mgwr_predict.py'},
                     ],
                     value='AI.py',
                     clearable=False,
@@ -1202,203 +1233,10 @@ def render_content(tab):
                 html.Label('Prediction Data Controls', style={'fontSize': '12px'}),
                 html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0, style={'fontSize': '12px'}),
                 html.Hr(),
-                html.H3("Edit Census Tract Data", style={'fontSize': '14px', 'marginBottom': '10px'}),
-                html.Div([
-                    html.Div([
-                        html.Label("Demographic Index", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_DEMOGIDX_5", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_DEMOGIDX_5", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_DEMOGIDX_5", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("People of Color (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_PEOPCOLORPCT", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_PEOPCOLORPCT", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_PEOPCOLORPCT", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("Unemployment Rate (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_UNEMPPCT", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_UNEMPPCT", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_UNEMPPCT", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("Residential Land Use (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_pct_residential", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_pct_residential", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_pct_residential", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("Industrial Land Use (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_pct_industrial", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_pct_industrial", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_pct_industrial", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("Retail Land Use (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_pct_retail", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_pct_retail", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_pct_retail", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("Commercial Land Use (%)", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_pct_commercial", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_pct_commercial", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_pct_commercial", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("Annual Average Daily Traffic", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_AADT", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_AADT", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_AADT", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("Avg Commute Distance (Trip Start, mi)", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_Commute_TripMiles_TripStart_avg", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_Commute_TripMiles_TripStart_avg", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'}),
-                    html.Div([
-                        html.Label("Avg Commute Distance (Trip End, mi)", style={'fontSize': '12px', 'marginRight': '5px'}),
-                        dcc.Input(id="input_Commute_TripMiles_TripEnd_avg", type="number", value=0, step=0.01,
-                                style={'width': '80px', 'fontSize': '12px'}),
-                        html.Button("+", id="plus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'}),
-                        html.Button("–", id="minus_input_Commute_TripMiles_TripEnd_avg", n_clicks=0,
-                                    style={'marginLeft': '5px', 'fontSize': '12px'})
-                    ], style={'display': 'flex', 'alignItems': 'center', 'marginBottom': '5px'})
-                ], style={'display': 'flex', 'flexDirection': 'column', 'gap': '5px'}),
-                    html.Div([
-                        html.Label("Total Population (ACS)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_ACSTOTPOP", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_ACSTOTPOP", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_ACSTOTPOP", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Demographic Index (2-yr ACS)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_DEMOGIDX_2", type="number", value=0, step=0.01, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_DEMOGIDX_2", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_DEMOGIDX_2", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Poverty Population", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_PovertyPop", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_PovertyPop", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_PovertyPop", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Disability (%)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_DISABILITYPCT", type="number", value=0, step=0.01, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_DISABILITYPCT", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_DISABILITYPCT", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Biking Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_BikingTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_BikingTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_BikingTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Biking Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_BikingTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_BikingTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_BikingTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Carpool Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_CarpoolTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_CarpoolTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_CarpoolTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Carpool Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_CarpoolTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_CarpoolTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_CarpoolTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Commercial Freight Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_CommercialFreightTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_CommercialFreightTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_CommercialFreightTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Commercial Freight Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_CommercialFreightTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_CommercialFreightTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_CommercialFreightTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Walking Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_WalkingTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_WalkingTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_WalkingTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Walking Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_WalkingTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_WalkingTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_WalkingTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Public Transit Trips (Start)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_PublicTransitTrips(Start)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_PublicTransitTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_PublicTransitTrips(Start)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                    html.Div([
-                        html.Label("Public Transit Trips (End)", style={'fontSize':'12px','marginRight':'5px'}),
-                        dcc.Input(id="input_PublicTransitTrips(End)", type="number", value=0, step=1, style={'width':'80px','fontSize':'12px'}),
-                        html.Button("+", id="plus_input_PublicTransitTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                        html.Button("–", id="minus_input_PublicTransitTrips(End)", n_clicks=0, style={'marginLeft':'5px','fontSize':'12px'}),
-                    ], style={'display':'flex','alignItems':'center','marginBottom':'5px'}),
-
-                html.Div([
-                    html.Button("Apply Updated Data", id="apply_updated_data", n_clicks=0,
-                                style={'fontSize': '12px', 'marginRight': '5px'}),
-                    html.Button("Reset Predictions", id="reset_predictions", n_clicks=0,
-                                style={'fontSize': '12px'})
-                ], style={'marginTop': '10px', 'display': 'flex', 'justifyContent': 'center'})
+                html.Div(
+                    [ make_field_row(var, LABELS[var], STEPS[var]) for var,_,_ in ALL_FIELDS ],
+                    id="modal_fields_container"
+                )
             ], className='responsive-controls'),
             # Right-side: Predictions Map
             html.Div([
@@ -1601,47 +1439,55 @@ def toggle_vru_options_tab3(main_value):
 # ----------------------------
 @app.callback(
     Output('comparison_graph', 'figure'),
-    Input('predictions_refresh',     'data'),
-    State('model_selector_tab4',     'value'),
-    State('county_selector_tab4',    'value'),
-    State('editable_gpkg_path',      'data'),
+    Input('predictions_refresh',  'data'),
+    State('model_selector_tab4',  'value'),
+    State('county_selector_tab4', 'value'),
+    State('editable_gpkg_path',   'data'),
 )
 def update_comparison_graph(refresh, model_file, selected_counties, editable_gpkg_path):
-    import os
-    # choose GPKG & suffix exactly as in update_predictions_map
+    # choose file‐suffix + default global file
     if model_file == "AI2.py":
         suffix, default_file = "_with_gwr_predictions", DEFAULT_PRED_FILES['AI2.py']
+    elif model_file == "mgwr_predict.py":
+        suffix, default_file = "_with_mgwr_predictions", DEFAULT_PRED_FILES['mgwr_predict.py']
     else:
         suffix, default_file = "_with_predictions",     DEFAULT_PRED_FILES['AI.py']
 
-    if editable_gpkg_path:
+    # only splitext when editable_gpkg_path is actually a string
+    if isinstance(editable_gpkg_path, str) and editable_gpkg_path:
         base, ext = os.path.splitext(editable_gpkg_path)
         candidate = f"{base}{suffix}{ext}"
         gpkg_file = candidate if os.path.exists(candidate) else default_file
     else:
         gpkg_file = default_file
 
-    # load it
+    # load the GeoPackage
     gdf = gpd.read_file(gpkg_file)
-    # standardize and filter counties
-    if 'CNTY_NAME' in gdf.columns:
-        gdf['CNTY_NAME'] = (
-            gdf['CNTY_NAME']
-               .str.replace(" County", "", regex=False)
-               .str.strip()
-               .str.title()
-        )
-    if selected_counties:
-        gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
 
-    # ensure Prediction column exists
+    # apply county filter if requested
+    if selected_counties:
+        if 'CNTY_NAME' in gdf.columns:
+            gdf['CNTY_NAME'] = (
+                gdf['CNTY_NAME']
+                   .str.replace(" County", "", regex=False)
+                   .str.strip()
+                   .str.title()
+            )
+            gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+        elif 'CountyName' in gdf.columns:
+            gdf['CountyName'] = (
+                gdf['CountyName']
+                   .str.strip()
+                   .str.title()
+            )
+            gdf = gdf[gdf['CountyName'].isin(selected_counties)]
+
+    # ensure we have the “Prediction” column
     if 'Prediction' not in gdf.columns:
         return go.Figure()
 
-    # build scatter comparison
+    # build comparison scatter
     fig = go.Figure()
-    # Prediction vs AADT Crash Rate
-    # AADT Crash Rate vs Prediction
     if 'AADT Crash Rate' in gdf.columns:
         fig.add_trace(go.Scatter(
             x=gdf['Prediction'],
@@ -1654,8 +1500,6 @@ def update_comparison_graph(refresh, model_file, selected_counties, editable_gpk
                 "Observed: %{y:.2f}<extra></extra>"
             )
         ))
-
-    # VRU Crash Rate vs Prediction
     if 'VRU Crash Rate' in gdf.columns:
         fig.add_trace(go.Scatter(
             x=gdf['Prediction'],
@@ -1676,6 +1520,7 @@ def update_comparison_graph(refresh, model_file, selected_counties, editable_gpk
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
     )
     return fig
+
 
 @app.callback(
     [
@@ -2161,19 +2006,20 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
 
     # pick which gpkg & column
     if model_file == "AI2.py":
-        suffix, pred_col = "_with_gwr_predictions", "GWR_Prediction"
-        default_file = DEFAULT_PRED_FILES['AI2.py']
+        suffix, pred_col, default_file = "_with_gwr_predictions",  "GWR_Prediction", DEFAULT_PRED_FILES['AI2.py']
+    elif model_file == "mgwr_predict.py":
+        suffix, pred_col, default_file = "_with_mgwr_predictions", "MGWR_Prediction", DEFAULT_PRED_FILES['mgwr_predict.py']
     else:
-        suffix, pred_col = "_with_predictions", "Prediction"
-        default_file = DEFAULT_PRED_FILES['AI.py']
+        suffix, pred_col, default_file = "_with_predictions",     "Prediction",      DEFAULT_PRED_FILES['AI.py']
 
-    # decide which file to load
-    if editable_gpkg_path:
+    # decide which file to load (only split if we actually have a string path)
+    if isinstance(editable_gpkg_path, str) and editable_gpkg_path:
         base, ext = os.path.splitext(editable_gpkg_path)
         candidate = f"{base}{suffix}{ext}"
         gpkg_file = candidate if os.path.exists(candidate) else default_file
     else:
         gpkg_file = default_file
+
 
     try:
         gdf = gpd.read_file(gpkg_file)
@@ -2182,15 +2028,29 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         gdf['Prediction'] = gdf[pred_col]
 
         # normalize county names & filter
-        if 'CNTY_NAME' in gdf:
-            gdf['CNTY_NAME'] = (
-                gdf['CNTY_NAME']
-                   .str.replace(" County", "", regex=False)
-                   .str.strip()
-                   .str.title()
-            )
+        # ——— filter by selected_counties, using whichever county field exists ———
         if selected_counties:
-            gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+            # AI/GWR outputs
+            if 'CNTY_NAME' in gdf.columns:
+                gdf['CNTY_NAME'] = (
+                    gdf['CNTY_NAME']
+                       .str.replace(" County", "", regex=False)
+                       .str.strip()
+                       .str.title()
+                )
+                gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+
+            # MGWR outputs use CountyName
+            elif 'CountyName' in gdf.columns:
+                gdf['CountyName'] = (
+                    gdf['CountyName']
+                       .str.replace(" County", "", regex=False)
+                       .str.strip()
+                       .str.title()
+                )
+                gdf = gdf[gdf['CountyName'].isin(selected_counties)]
+
+            # else: no county column, so skip filtering entirely
 
         valid   = gdf[~gdf['Prediction'].isna()]
         missing = gdf[ gdf['Prediction'].isna()]
@@ -2267,349 +2127,104 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         return fig
 
 
-@app.callback(
-    # Existing fields
-    Output('input_DEMOGIDX_5', 'value'),
-    Output('input_PEOPCOLORPCT', 'value'),
-    Output('input_UNEMPPCT', 'value'),
-    Output('input_pct_residential', 'value'),
-    Output('input_pct_industrial', 'value'),
-    Output('input_pct_retail', 'value'),
-    Output('input_pct_commercial', 'value'),
-    Output('input_AADT', 'value'),
-    Output('input_Commute_TripMiles_TripStart_avg', 'value'),
-    Output('input_Commute_TripMiles_TripEnd_avg', 'value'),
-    Output('input_ACSTOTPOP', 'value'),
-    Output('input_DEMOGIDX_2', 'value'),
-    Output('input_PovertyPop', 'value'),
-    Output('input_DISABILITYPCT', 'value'),
-    Output('input_BikingTrips(Start)', 'value'),
-    Output('input_BikingTrips(End)', 'value'),
-    Output('input_CarpoolTrips(Start)', 'value'),
-    Output('input_CarpoolTrips(End)', 'value'),
-    Output('input_CommercialFreightTrips(Start)', 'value'),
-    Output('input_CommercialFreightTrips(End)', 'value'),
-    Output('input_WalkingTrips(Start)', 'value'),
-    Output('input_WalkingTrips(End)', 'value'),
-    Output('input_PublicTransitTrips(Start)', 'value'),
-    Output('input_PublicTransitTrips(End)', 'value'),
+# -----------------------------------------------------------------------------
+# 1) update_modal_values: reload on tract/model/refresh/gpkg change, else bump values
+# -----------------------------------------------------------------------------
+# 1) Grab your field IDs from ALL_FIELDS:
+FIELD_IDS = [ var for var, _, _ in ALL_FIELDS ]
 
-    # Inputs: selection + all plus/minus buttons
-    Input('selected_census_tract', 'data'),
-    Input('plus_input_DEMOGIDX_5', 'n_clicks'),
-    Input('minus_input_DEMOGIDX_5', 'n_clicks'),
-    Input('plus_input_PEOPCOLORPCT', 'n_clicks'),
-    Input('minus_input_PEOPCOLORPCT', 'n_clicks'),
-    Input('plus_input_UNEMPPCT', 'n_clicks'),
-    Input('minus_input_UNEMPPCT', 'n_clicks'),
-    Input('plus_input_pct_residential', 'n_clicks'),
-    Input('minus_input_pct_residential', 'n_clicks'),
-    Input('plus_input_pct_industrial', 'n_clicks'),
-    Input('minus_input_pct_industrial', 'n_clicks'),
-    Input('plus_input_pct_retail', 'n_clicks'),
-    Input('minus_input_pct_retail', 'n_clicks'),
-    Input('plus_input_pct_commercial', 'n_clicks'),
-    Input('minus_input_pct_commercial', 'n_clicks'),
-    Input('plus_input_AADT', 'n_clicks'),
-    Input('minus_input_AADT', 'n_clicks'),
-    Input('plus_input_Commute_TripMiles_TripStart_avg', 'n_clicks'),
-    Input('minus_input_Commute_TripMiles_TripStart_avg', 'n_clicks'),
-    Input('plus_input_Commute_TripMiles_TripEnd_avg', 'n_clicks'),
-    Input('minus_input_Commute_TripMiles_TripEnd_avg', 'n_clicks'),
-    Input('plus_input_ACSTOTPOP', 'n_clicks'),
-    Input('minus_input_ACSTOTPOP', 'n_clicks'),
-    Input('plus_input_DEMOGIDX_2', 'n_clicks'),
-    Input('minus_input_DEMOGIDX_2', 'n_clicks'),
-    Input('plus_input_PovertyPop', 'n_clicks'),
-    Input('minus_input_PovertyPop', 'n_clicks'),
-    Input('plus_input_DISABILITYPCT', 'n_clicks'),
-    Input('minus_input_DISABILITYPCT', 'n_clicks'),
-    Input('plus_input_BikingTrips(Start)', 'n_clicks'),
-    Input('minus_input_BikingTrips(Start)', 'n_clicks'),
-    Input('plus_input_BikingTrips(End)', 'n_clicks'),
-    Input('minus_input_BikingTrips(End)', 'n_clicks'),
-    Input('plus_input_CarpoolTrips(Start)', 'n_clicks'),
-    Input('minus_input_CarpoolTrips(Start)', 'n_clicks'),
-    Input('plus_input_CarpoolTrips(End)', 'n_clicks'),
-    Input('minus_input_CarpoolTrips(End)', 'n_clicks'),
-    Input('plus_input_CommercialFreightTrips(Start)', 'n_clicks'),
-    Input('minus_input_CommercialFreightTrips(Start)', 'n_clicks'),
-    Input('plus_input_CommercialFreightTrips(End)', 'n_clicks'),
-    Input('minus_input_CommercialFreightTrips(End)', 'n_clicks'),
-    Input('plus_input_WalkingTrips(Start)', 'n_clicks'),
-    Input('minus_input_WalkingTrips(Start)', 'n_clicks'),
-    Input('plus_input_WalkingTrips(End)', 'n_clicks'),
-    Input('minus_input_WalkingTrips(End)', 'n_clicks'),
-    Input('plus_input_PublicTransitTrips(Start)', 'n_clicks'),
-    Input('minus_input_PublicTransitTrips(Start)', 'n_clicks'),
-    Input('plus_input_PublicTransitTrips(End)', 'n_clicks'),
-    Input('minus_input_PublicTransitTrips(End)', 'n_clicks'),
+# 2) Build the decorator args:
+modal_value_outputs = [
+    Output(f"input_{var}", "value")
+    for var in FIELD_IDS
+]
 
-    # States: gpkg path and current values
-    State('editable_gpkg_path', 'data'),
-    State('input_DEMOGIDX_5', 'value'),
-    State('input_PEOPCOLORPCT', 'value'),
-    State('input_UNEMPPCT', 'value'),
-    State('input_pct_residential', 'value'),
-    State('input_pct_industrial', 'value'),
-    State('input_pct_retail', 'value'),
-    State('input_pct_commercial', 'value'),
-    State('input_AADT', 'value'),
-    State('input_Commute_TripMiles_TripStart_avg', 'value'),
-    State('input_Commute_TripMiles_TripEnd_avg', 'value'),
-    State('input_ACSTOTPOP', 'value'),
-    State('input_DEMOGIDX_2', 'value'),
-    State('input_PovertyPop', 'value'),
-    State('input_DISABILITYPCT', 'value'),
-    State('input_BikingTrips(Start)', 'value'),
-    State('input_BikingTrips(End)', 'value'),
-    State('input_CarpoolTrips(Start)', 'value'),
-    State('input_CarpoolTrips(End)', 'value'),
-    State('input_CommercialFreightTrips(Start)', 'value'),
-    State('input_CommercialFreightTrips(End)', 'value'),
-    State('input_WalkingTrips(Start)', 'value'),
-    State('input_WalkingTrips(End)', 'value'),
-    State('input_PublicTransitTrips(Start)', 'value'),
-    State('input_PublicTransitTrips(End)', 'value'),
+modal_value_inputs = (
+    [ Input("selected_census_tract", "data") ]
+  + sum([[ 
+       Input(f"plus_input_{var}",  "n_clicks"),
+       Input(f"minus_input_{var}", "n_clicks")
+    ] for var in FIELD_IDS], [])
 )
-def update_modal_values(
-    selected_tract,
-    plus_demog, minus_demog,
-    plus_peop, minus_peop,
-    plus_unemp, minus_unemp,
-    plus_res, minus_res,
-    plus_ind, minus_ind,
-    plus_retail, minus_retail,
-    plus_comm, minus_comm,
-    plus_aadt, minus_aadt,
-    plus_c_start, minus_c_start,
-    plus_c_end, minus_c_end,
-    plus_acstot, minus_acstot,
-    plus_demog2, minus_demog2,
-    plus_pov, minus_pov,
-    plus_dis, minus_dis,
-    plus_bike_s, minus_bike_s,
-    plus_bike_e, minus_bike_e,
-    plus_carp_s, minus_carp_s,
-    plus_carp_e, minus_carp_e,
-    plus_fre_s, minus_fre_s,
-    plus_fre_e, minus_fre_e,
-    plus_walk_s, minus_walk_s,
-    plus_walk_e, minus_walk_e,
-    plus_pt_s, minus_pt_s,
-    plus_pt_e, minus_pt_e,
-    gpkg_path,
-    cur_demog, cur_peop, cur_unemp, cur_res, cur_ind, cur_retail, cur_comm,
-    cur_aadt, cur_c_start, cur_c_end,
-    cur_acstot, cur_demog2, cur_pov, cur_dis,
-    cur_bike_s, cur_bike_e,
-    cur_carp_s, cur_carp_e,
-    cur_fre_s, cur_fre_e,
-    cur_walk_s, cur_walk_e,
-    cur_pt_s, cur_pt_e
-):
+
+modal_value_states = (
+    [ State("editable_gpkg_path", "data") ]
+  + [ State(f"input_{var}", "value") for var in FIELD_IDS ]
+)
+
+@app.callback(
+    *modal_value_outputs,
+    *modal_value_inputs,
+    *modal_value_states,
+    prevent_initial_call=True
+)
+def update_modal_values(*all_args):
+    """
+    On tract‐click: load every field from the editable GPKG.
+    On plus/minus: bump only that one field by its step, leave the rest unchanged.
+    """
+    num = len(FIELD_IDS)
+    # Inputs are: 1 selected_tract + 2*num clicks
+    trigger_args = all_args[: 1 + 2 * num]
+    # States are: 1 gpkg_path + num current values
+    state_args   = all_args[1 + 2 * num :]
+
+    selected_tract = trigger_args[0]
+    gpkg_path      = state_args[0]
+    current_vals   = list(state_args[1:])  # length == num
+
+    trig = callback_context.triggered[0]["prop_id"]
+
     def clean(v):
         return None if pd.isna(v) else round(v, 2)
 
-    ctx = callback_context
-    if not ctx.triggered:
-        raise PreventUpdate
-    trig = ctx.triggered[0]['prop_id']
-
-    # On new tract selection, load all values
-    if trig.startswith('selected_census_tract'):
-        if not selected_tract or not gpkg_path:
+    # --- Case 1: new tract selected → load all fields from the GPKG
+    if trig.startswith("selected_census_tract"):
+        if not (selected_tract and gpkg_path and os.path.exists(gpkg_path)):
             raise PreventUpdate
         gdf = gpd.read_file(gpkg_path)
-        row = gdf[gdf['id'] == selected_tract]
+        row = gdf[gdf["id"].astype(str) == str(selected_tract)]
         if row.empty:
             raise PreventUpdate
         row = row.iloc[0]
-        return (
-            clean(row.get('DEMOGIDX_5')),
-            clean(row.get('PEOPCOLORPCT')),
-            clean(row.get('UNEMPPCT')),
-            clean(row.get('pct_residential')),
-            clean(row.get('pct_industrial')),
-            clean(row.get('pct_retail')),
-            clean(row.get('pct_commercial')),
-            clean(row.get('AADT')),
-            clean(row.get('AvgCommuteMiles(Start)')),
-            clean(row.get('AvgCommuteMiles(End)')),
-            clean(row.get('ACSTOTPOP')),
-            clean(row.get('DEMOGIDX_2')),
-            clean(row.get('PovertyPop')),
-            clean(row.get('DISABILITYPCT')),
-            clean(row.get('BikingTrips(Start)')),
-            clean(row.get('BikingTrips(End)')),
-            clean(row.get('CarpoolTrips(Start)')),
-            clean(row.get('CarpoolTrips(End)')),
-            clean(row.get('CommercialFreightTrips(Start)')),
-            clean(row.get('CommercialFreightTrips(End)')),
-            clean(row.get('WalkingTrips(Start)')),
-            clean(row.get('WalkingTrips(End)')),
-            clean(row.get('PublicTransitTrips(Start)')),
-            clean(row.get('PublicTransitTrips(End)')),
-        )
+        return [ clean(row.get(var)) for var in FIELD_IDS ]
 
-    # Otherwise adjust plus/minus
-    new_demog      = cur_demog      or 0
-    new_peop       = cur_peop       or 0
-    new_unemp      = cur_unemp      or 0
-    new_res        = cur_res        or 0
-    new_ind        = cur_ind        or 0
-    new_retail     = cur_retail     or 0
-    new_comm       = cur_comm       or 0
-    new_aadt       = cur_aadt       or 0
-    new_c_start    = cur_c_start    or 0
-    new_c_end      = cur_c_end      or 0
-    new_acstot     = cur_acstot     or 0
-    new_demog2     = cur_demog2     or 0
-    new_pov        = cur_pov        or 0
-    new_dis        = cur_dis        or 0
-    new_bike_s     = cur_bike_s     or 0
-    new_bike_e     = cur_bike_e     or 0
-    new_carp_s     = cur_carp_s     or 0
-    new_carp_e     = cur_carp_e     or 0
-    new_fre_s      = cur_fre_s      or 0
-    new_fre_e      = cur_fre_e      or 0
-    new_walk_s     = cur_walk_s     or 0
-    new_walk_e     = cur_walk_e     or 0
-    new_pt_s       = cur_pt_s       or 0
-    new_pt_e       = cur_pt_e       or 0
+    # --- Case 2: plus/minus clicked → find exactly which var to adjust
+    # Map each plus/minus input to its index and sign:
+    deltas = {}
+    for idx, var in enumerate(FIELD_IDS):
+        if trig.startswith(f"plus_input_{var}.n_clicks"):
+            deltas[idx] = STEPS[var]
+        elif trig.startswith(f"minus_input_{var}.n_clicks"):
+            deltas[idx] = -STEPS[var]
 
-    if trig.startswith('plus_input_DEMOGIDX_5'):
-        new_demog += 0.1
-    elif trig.startswith('minus_input_DEMOGIDX_5'):
-        new_demog -= 0.1
-    elif trig.startswith('plus_input_PEOPCOLORPCT'):
-        new_peop += 0.1
-    elif trig.startswith('minus_input_PEOPCOLORPCT'):
-        new_peop -= 0.1
-    elif trig.startswith('plus_input_UNEMPPCT'):
-        new_unemp += 0.1
-    elif trig.startswith('minus_input_UNEMPPCT'):
-        new_unemp -= 0.1
-    elif trig.startswith('plus_input_pct_residential'):
-        new_res += 0.1
-    elif trig.startswith('minus_input_pct_residential'):
-        new_res -= 0.1
-    elif trig.startswith('plus_input_pct_industrial'):
-        new_ind += 0.1
-    elif trig.startswith('minus_input_pct_industrial'):
-        new_ind -= 0.1
-    elif trig.startswith('plus_input_pct_retail'):
-        new_retail += 0.1
-    elif trig.startswith('minus_input_pct_retail'):
-        new_retail -= 0.1
-    elif trig.startswith('plus_input_pct_commercial'):
-        new_comm += 0.1
-    elif trig.startswith('minus_input_pct_commercial'):
-        new_comm -= 0.1
-    elif trig.startswith('plus_input_AADT'):
-        new_aadt += 1
-    elif trig.startswith('minus_input_AADT'):
-        new_aadt -= 1
-    elif trig.startswith('plus_input_Commute_TripMiles_TripStart_avg'):
-        new_c_start += 0.1
-    elif trig.startswith('minus_input_Commute_TripMiles_TripStart_avg'):
-        new_c_start -= 0.1
-    elif trig.startswith('plus_input_Commute_TripMiles_TripEnd_avg'):
-        new_c_end += 0.1
-    elif trig.startswith('minus_input_Commute_TripMiles_TripEnd_avg'):
-        new_c_end -= 0.1
-    elif trig.startswith('plus_input_ACSTOTPOP'):
-        new_acstot += 1
-    elif trig.startswith('minus_input_ACSTOTPOP'):
-        new_acstot -= 1
-    elif trig.startswith('plus_input_DEMOGIDX_2'):
-        new_demog2 += 0.1
-    elif trig.startswith('minus_input_DEMOGIDX_2'):
-        new_demog2 -= 0.1
-    elif trig.startswith('plus_input_PovertyPop'):
-        new_pov += 1
-    elif trig.startswith('minus_input_PovertyPop'):
-        new_pov -= 1
-    elif trig.startswith('plus_input_DISABILITYPCT'):
-        new_dis += 0.1
-    elif trig.startswith('minus_input_DISABILITYPCT'):
-        new_dis -= 0.1
-    elif trig.startswith('plus_input_BikingTrips(Start)'):
-        new_bike_s += 1
-    elif trig.startswith('minus_input_BikingTrips(Start)'):
-        new_bike_s -= 1
-    elif trig.startswith('plus_input_BikingTrips(End)'):
-        new_bike_e += 1
-    elif trig.startswith('minus_input_BikingTrips(End)'):
-        new_bike_e -= 1
-    elif trig.startswith('plus_input_CarpoolTrips(Start)'):
-        new_carp_s += 1
-    elif trig.startswith('minus_input_CarpoolTrips(Start)'):
-        new_carp_s -= 1
-    elif trig.startswith('plus_input_CarpoolTrips(End)'):
-        new_carp_e += 1
-    elif trig.startswith('minus_input_CarpoolTrips(End)'):
-        new_carp_e -= 1
-    elif trig.startswith('plus_input_CommercialFreightTrips(Start)'):
-        new_fre_s += 1
-    elif trig.startswith('minus_input_CommercialFreightTrips(Start)'):
-        new_fre_s -= 1
-    elif trig.startswith('plus_input_CommercialFreightTrips(End)'):
-        new_fre_e += 1
-    elif trig.startswith('minus_input_CommercialFreightTrips(End)'):
-        new_fre_e -= 1
-    elif trig.startswith('plus_input_WalkingTrips(Start)'):
-        new_walk_s += 1
-    elif trig.startswith('minus_input_WalkingTrips(Start)'):
-        new_walk_s -= 1
-    elif trig.startswith('plus_input_WalkingTrips(End)'):
-        new_walk_e += 1
-    elif trig.startswith('minus_input_WalkingTrips(End)'):
-        new_walk_e -= 1
-    elif trig.startswith('plus_input_PublicTransitTrips(Start)'):
-        new_pt_s += 1
-    elif trig.startswith('minus_input_PublicTransitTrips(Start)'):
-        new_pt_s -= 1
-    elif trig.startswith('plus_input_PublicTransitTrips(End)'):
-        new_pt_e += 1
-    elif trig.startswith('minus_input_PublicTransitTrips(End)'):
-        new_pt_e -= 1
+    if not deltas:
+        # no recognized trigger → do nothing
+        raise PreventUpdate
 
-    return (
-        round(new_demog, 2),
-        round(new_peop, 2),
-        round(new_unemp, 2),
-        round(new_res, 2),
-        round(new_ind, 2),
-        round(new_retail, 2),
-        round(new_comm, 2),
-        round(new_aadt, 2),
-        round(new_c_start, 2),
-        round(new_c_end, 2),
-        round(new_acstot, 2),
-        round(new_demog2, 2),
-        round(new_pov, 2),
-        round(new_dis, 2),
-        round(new_bike_s, 2),
-        round(new_bike_e, 2),
-        round(new_carp_s, 2),
-        round(new_carp_e, 2),
-        round(new_fre_s, 2),
-        round(new_fre_e, 2),
-        round(new_walk_s, 2),
-        round(new_walk_e, 2),
-        round(new_pt_s, 2),
-        round(new_pt_e, 2),
-    )
+    # apply the single delta and return all values
+    new_vals = current_vals.copy()
+    for idx, delta in deltas.items():
+        base = new_vals[idx] or 0
+        new_vals[idx] = round(base + delta, 2)
 
-    
+    return new_vals
+
 @app.callback(
     Output('county_selector_tab4', 'options'),
-    Input('refresh_predictions_tab4', 'n_clicks')
+    [
+        Input('refresh_predictions_tab4', 'n_clicks'),
+        Input('model_selector_tab4',    'value')
+    ]
 )
-def update_county_options(n_clicks):
+def update_county_options(n_clicks, model_file):
     try:
-        gpkg_file = './AI/Large_DataSet2.25_with_predictions.gpkg'
+        if model_file == "AI2.py":
+            gpkg_file = DEFAULT_PRED_FILES['AI2.py']
+        elif model_file == "MGWR.py":
+            gpkg_file = DEFAULT_PRED_FILES['MGWR.py']
+        else:
+            gpkg_file = DEFAULT_PRED_FILES['AI.py']
         gdf = gpd.read_file(gpkg_file)
         # Log the original column values for debugging
         logger.debug("Original CNTY_NAME values: " + str(gdf['CNTY_NAME'].unique()))
@@ -2623,15 +2238,6 @@ def update_county_options(n_clicks):
         logger.error(f"Error updating county selector options: {e}")
         return []
 
-@app.callback(
-    Output('selected_census_tract', 'data'),
-    Input('predictions_map', 'clickData')
-)
-def store_selected_tract(clickData):
-    if clickData and 'points' in clickData:
-        tract_id = clickData['points'][0].get('location')
-        return tract_id
-    raise PreventUpdate
 
 
 @app.callback(
@@ -2663,200 +2269,227 @@ def toggle_modal(open_clicks, close_clicks, apply_clicks, current_style):
         # Hide the modal on Close or after applying changes.
         return {'display': 'none'}
 
+
 @app.callback(
-    Output('predictions_refresh', 'data', allow_duplicate=True),
-    Input('reset_predictions', 'n_clicks'),
-    State('editable_gpkg_path', 'data'),
-    State('predictions_refresh', 'data'),
-    prevent_initial_call=True
+    Output('selected_census_tract', 'data'),
+    Output('editable_gpkg_path',    'data'),
+    Output('predictions_refresh',   'data'),
+    Output('county_selector_tab4',  'value'),
+    Input('predictions_map',        'clickData'),
+    Input('county_selector_tab4',   'value'),
+    Input('apply_updated_data',     'n_clicks'),
+    Input('reset_predictions',      'n_clicks'),
+    Input('model_selector_tab4',    'value'),
+    State('selected_census_tract',  'data'),
+    State('editable_gpkg_path',     'data'),
+    # all 24 field‐States in the right order
+    State('input_DEMOGIDX_5',                        'value'),
+    State('input_PEOPCOLORPCT',                      'value'),
+    State('input_UNEMPPCT',                          'value'),
+    State('input_pct_residential',                   'value'),
+    State('input_pct_industrial',                    'value'),
+    State('input_pct_retail',                        'value'),
+    State('input_pct_commercial',                    'value'),
+    State('input_AADT',                              'value'),
+    State('input_Commute_TripMiles_TripStart_avg',   'value'),
+    State('input_Commute_TripMiles_TripEnd_avg',     'value'),
+    State('input_ACSTOTPOP',                         'value'),
+    State('input_DEMOGIDX_2',                        'value'),
+    State('input_PovertyPop',                        'value'),
+    State('input_DISABILITYPCT',                     'value'),
+    State('input_BikingTrips(Start)',                'value'),
+    State('input_BikingTrips(End)',                  'value'),
+    State('input_CarpoolTrips(Start)',               'value'),
+    State('input_CarpoolTrips(End)',                 'value'),
+    State('input_CommercialFreightTrips(Start)',     'value'),
+    State('input_CommercialFreightTrips(End)',       'value'),
+    State('input_WalkingTrips(Start)',               'value'),
+    State('input_WalkingTrips(End)',                 'value'),
+    State('input_PublicTransitTrips(Start)',         'value'),
+    State('input_PublicTransitTrips(End)',           'value'),
+    State('predictions_refresh',                     'data'),
+    prevent_initial_call=True,
+    allow_duplicate=True
 )
-def reset_predictions(n_clicks, editable_gpkg_path, current_refresh):
-    if n_clicks:
-        if editable_gpkg_path and os.path.exists(editable_gpkg_path):
-            base, ext = os.path.splitext(editable_gpkg_path)
-            predictions_file = base + "_with_predictions" + ext
-            if os.path.exists(predictions_file):
-                try:
-                    os.remove(predictions_file)
-                    logger.info(f"Deleted predictions file: {predictions_file}")
-                except Exception as e:
-                    logger.error(f"Error deleting predictions file {predictions_file}: {e}")
+def manage_editable_and_predictions(
+    clickData,
+    county_val,
+    apply_n, reset_n, model_file,
+    selected_tract, gpkg_path,
+    demogidx_5, peopcolorpct, unemppct,
+    pct_residential, pct_industrial, pct_retail, pct_commercial,
+    aadt, commute_start, commute_end,
+    acstotpop, demogidx_2, poverty_pop, disabilitypct,
+    biking_start, biking_end,
+    carpool_start, carpool_end,
+    freight_start, freight_end,
+    walking_start, walking_end,
+    transit_start, transit_end,
+    current_refresh
+):
+
+
+
+    trig = ctx.triggered_id
+
+    # 1) Map click just update selected_census_tract
+    if trig == 'predictions_map':
+        if clickData and clickData.get('points'):
+            tract = clickData['points'][0]['location']
+            return tract, dash.no_update, dash.no_update, dash.no_update
+        raise PreventUpdate
+
+
+    # Model swapclear everything so user must re-choose county
+    if trig == 'model_selector_tab4':
+        # delete any existing editable & pred files but only if gpkg_path is really a string
+        if isinstance(gpkg_path, str) and os.path.exists(gpkg_path):
+            os.remove(gpkg_path)
+            base, ext = os.path.splitext(gpkg_path)
+            suffix = (
+                '_with_gwr_predictions'   if model_file == 'AI2.py' else
+                '_with_mgwr_predictions'  if model_file == 'mgwr_predict.py' else
+                '_with_predictions'
+            )
+            pred_p = f"{base}{suffix}{ext}"
+            if os.path.exists(pred_p):
+                os.remove(pred_p)
+        # clear out both the county dropdown and the tract store
+        return None, None, (current_refresh or 0) + 1, []
+
+    # 3) New county selected  copy per county file
+    if trig == 'county_selector_tab4':
+        if county_val and len(county_val)==1:
+            cnty = county_val[0]
+            if model_file=='AI2.py':
+                src, dst = DEFAULT_PRED_FILES['AI2.py'],    './AI/'
+            elif model_file=='mgwr_predict.py':
+                src, dst = DEFAULT_PRED_FILES['mgwr_predict.py'],'./MGWR/'
             else:
-                logger.info("No editable predictions file to delete.")
-        else:
-            logger.info("No editable GPkg provided; nothing to reset.")
-        # Increment the refresh value to trigger a refresh
-        return (current_refresh or 0) + 1
+                src, dst = DEFAULT_PRED_FILES['AI.py'],     './AI/'
+            new_path = copy_county_gpkg(cnty, src, dst)
+            return (
+          dash.no_update,     # selected_tract
+          new_path,           # editable_gpkg_path
+          dash.no_update,     # predictions_refresh
+          dash.no_update      # county_selector itself
+        )
+        raise PreventUpdate
+
+    # 4) Apply edits → write GPKG, rerun model, bump
+    if trig == 'apply_updated_data':
+        if apply_n and selected_tract and gpkg_path:
+            gdf = gpd.read_file(gpkg_path)
+            idx = gdf[gdf['id']==selected_tract].index
+            if idx.empty:
+                raise PreventUpdate
+
+            # — your 24 field‐writes —
+            gdf.loc[idx, 'DEMOGIDX_5']                      = demogidx_5
+            gdf.loc[idx, 'PEOPCOLORPCT']                    = peopcolorpct
+            gdf.loc[idx, 'UNEMPPCT']                        = unemppct
+            gdf.loc[idx, 'pct_residential']                 = pct_residential
+            gdf.loc[idx, 'pct_industrial']                  = pct_industrial
+            gdf.loc[idx, 'pct_retail']                      = pct_retail
+            gdf.loc[idx, 'pct_commercial']                  = pct_commercial
+            gdf.loc[idx, 'AADT']                            = aadt
+            gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = commute_start
+            gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg']   = commute_end
+            gdf.loc[idx, 'ACSTOTPOP']                       = acstotpop
+            gdf.loc[idx, 'DEMOGIDX_2']                      = demogidx_2
+            gdf.loc[idx, 'PovertyPop']                      = poverty_pop
+            gdf.loc[idx, 'DISABILITYPCT']                   = disabilitypct
+            gdf.loc[idx, 'BikingTrips(Start)']              = biking_start
+            gdf.loc[idx, 'BikingTrips(End)']                = biking_end
+            gdf.loc[idx, 'CarpoolTrips(Start)']             = carpool_start
+            gdf.loc[idx, 'CarpoolTrips(End)']               = carpool_end
+            gdf.loc[idx, 'CommercialFreightTrips(Start)']   = freight_start
+            gdf.loc[idx, 'CommercialFreightTrips(End)']     = freight_end
+            gdf.loc[idx, 'WalkingTrips(Start)']             = walking_start
+            gdf.loc[idx, 'WalkingTrips(End)']               = walking_end
+            gdf.loc[idx, 'PublicTransitTrips(Start)']       = transit_start
+            gdf.loc[idx, 'PublicTransitTrips(End)']         = transit_end
+
+            # overwrite and re‐run
+            gdf.to_file(gpkg_path, driver="GPKG")
+            base, ext = os.path.splitext(gpkg_path)
+            suffix   = '_with_mgwr_predictions' if model_file=='mgwr_predict.py' else '_with_predictions'
+            out_file = f"{base}{suffix}{ext}"
+            subprocess.run([sys.executable, model_file, gpkg_path, out_file],
+                           check=True, capture_output=True, text=True)
+
+            return dash.no_update, dash.no_update, (current_refresh or 0) + 1, dash.no_update
+
+        raise PreventUpdate
+
+    # Reset button (delete & recopy or it breaks)
+    if trig == 'reset_predictions' and reset_n:
+        # delete editable + pred only if gpkg_path is a valid path
+        if isinstance(gpkg_path, str) and os.path.exists(gpkg_path):
+            os.remove(gpkg_path)
+            base, ext = os.path.splitext(gpkg_path)
+            suffix = '_with_mgwr_predictions' if model_file == 'mgwr_predict.py' else '_with_predictions'
+            pred_p = f"{base}{suffix}{ext}"
+            if os.path.exists(pred_p):
+                os.remove(pred_p)
+
+        # immediately recopy so user can click again
+        new_path = None
+        if county_val and len(county_val) == 1:
+            cnty = county_val[0]
+            if model_file == 'AI2.py':
+                src, dst = DEFAULT_PRED_FILES['AI2.py'],    './AI/'
+            elif model_file == 'mgwr_predict.py':
+                src, dst = DEFAULT_PRED_FILES['mgwr_predict.py'], './MGWR/'
+            else:
+                src, dst = DEFAULT_PRED_FILES['AI.py'],     './AI/'
+            new_path = copy_county_gpkg(cnty, src, dst)
+
+            return (dash.no_update,  new_path, (current_refresh or 0) + 1, dash.no_update)
+
+    # fallback if it all breaks
     raise PreventUpdate
 
 
 
-# Callback to handle county‐selection, data‐editing, apply/reset predictions
 @app.callback(
-    Output('editable_gpkg_path', 'data'),
-    Output('predictions_refresh', 'data'),
+    [Output(f"container_{var}", "style") for var, _, _ in ALL_FIELDS],
     [
-        Input('county_selector_tab4',     'value'),
-        Input('apply_updated_data',       'n_clicks'),
-        Input('reset_predictions',        'n_clicks'),
-        Input('model_selector_tab4',      'value'),
+        Input("model_selector_tab4",       "value"),
+        Input("selected_census_tract",     "data"),
+        Input("editable_gpkg_path",        "data"),
     ],
-    [
-        State('selected_census_tract',                   'data'),
-        State('editable_gpkg_path',                      'data'),
-        # existing fields
-        State('input_DEMOGIDX_5',                        'value'),
-        State('input_PEOPCOLORPCT',                      'value'),
-        State('input_UNEMPPCT',                          'value'),
-        State('input_pct_residential',                   'value'),
-        State('input_pct_industrial',                    'value'),
-        State('input_pct_retail',                        'value'),
-        State('input_pct_commercial',                    'value'),
-        State('input_AADT',                              'value'),
-        State('input_Commute_TripMiles_TripStart_avg',   'value'),
-        State('input_Commute_TripMiles_TripEnd_avg',     'value'),
-        # ───────── NEW STATES ─────────
-        State('input_ACSTOTPOP',                         'value'),
-        State('input_DEMOGIDX_2',                        'value'),
-        State('input_PovertyPop',                        'value'),
-        State('input_DISABILITYPCT',                     'value'),
-        State('input_BikingTrips(Start)',                'value'),
-        State('input_BikingTrips(End)',                  'value'),
-        State('input_CarpoolTrips(Start)',               'value'),
-        State('input_CarpoolTrips(End)',                 'value'),
-        State('input_CommercialFreightTrips(Start)',     'value'),
-        State('input_CommercialFreightTrips(End)',       'value'),
-        State('input_WalkingTrips(Start)',               'value'),
-        State('input_WalkingTrips(End)',                 'value'),
-        State('input_PublicTransitTrips(Start)',         'value'),
-        State('input_PublicTransitTrips(End)',           'value'),
-        State('predictions_refresh',                     'data'),
-    ]
+    prevent_initial_call=True,
 )
-def update_editable_gpkg_and_predictions(
-    county_selector_value,
-    apply_n_clicks,
-    reset_n_clicks,
-    model_file,
-    selected_tract,
-    gpkg_path,
-    demogidx_5,
-    peopcolorpct,
-    unemppct,
-    pct_residential,
-    pct_industrial,
-    pct_retail,
-    pct_commercial,
-    aadt,
-    commute_start,
-    commute_end,
-    acstotpop,
-    demogidx_2,
-    poverty_pop,
-    disabilitypct,
-    biking_start,
-    biking_end,
-    carpool_start,
-    carpool_end,
-    freight_start,
-    freight_end,
-    walking_start,
-    walking_end,
-    transit_start,
-    transit_end,
-    current_refresh
-):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        raise PreventUpdate
-    triggered = ctx.triggered[0]['prop_id'].split('.')[0]
+def toggle_field_styles(model_file, selected_tract, gpkg_path):
+    # AI and GWR always show all fields (can add more here later)
+    if model_file in ("AI.py", "AI2.py"):
+        return [{'marginBottom': '10px'}] * len(ALL_FIELDS)
 
-    # 1) New county selected → create an editable GPKG
-    if triggered == 'county_selector_tab4':
-        if county_selector_value and len(county_selector_value) == 1:
-            return copy_county_gpkg(county_selector_value[0]), current_refresh
-        else:
-            raise PreventUpdate
+    # MGWR hide everything until a tract is selected and GPkg exists
+    if not (selected_tract and gpkg_path and os.path.exists(gpkg_path)):
+        return [{'display': 'none'}] * len(ALL_FIELDS)
 
-    # 2) Apply updates to the tract and re‐run the model
-    elif triggered == 'apply_updated_data':
-        if apply_n_clicks and selected_tract and gpkg_path:
-            gdf = gpd.read_file(gpkg_path)
-            idx = gdf[gdf['id'] == selected_tract].index
-            if idx.empty:
-                raise PreventUpdate
+    tract_id = str(selected_tract)
 
-            # ─── Existing fields ───
-            gdf.loc[idx, 'DEMOGIDX_5']                         = demogidx_5
-            gdf.loc[idx, 'PEOPCOLORPCT']                       = peopcolorpct
-            gdf.loc[idx, 'UNEMPPCT']                           = unemppct
-            gdf.loc[idx, 'pct_residential']                    = pct_residential
-            gdf.loc[idx, 'pct_industrial']                     = pct_industrial
-            gdf.loc[idx, 'pct_retail']                         = pct_retail
-            gdf.loc[idx, 'pct_commercial']                     = pct_commercial
-            gdf.loc[idx, 'AADT']                               = aadt
-            gdf.loc[idx, 'Commute_TripMiles_TripStart_avg']    = commute_start
-            gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg']      = commute_end
+    # Load the per-county GPKG and get its Region column
+    gdf = gpd.read_file(gpkg_path)
+    if "Region" not in gdf.columns:
+        return [{'display': 'none'}] * len(ALL_FIELDS)
 
-            # ─── NEW fields ───
-            gdf.loc[idx, 'ACSTOTPOP']                          = acstotpop
-            gdf.loc[idx, 'DEMOGIDX_2']                         = demogidx_2
-            gdf.loc[idx, 'PovertyPop']                         = poverty_pop
-            gdf.loc[idx, 'DISABILITYPCT']                      = disabilitypct
-            gdf.loc[idx, 'BikingTrips(Start)']                 = biking_start
-            gdf.loc[idx, 'BikingTrips(End)']                   = biking_end
-            gdf.loc[idx, 'CarpoolTrips(Start)']                = carpool_start
-            gdf.loc[idx, 'CarpoolTrips(End)']                  = carpool_end
-            gdf.loc[idx, 'CommercialFreightTrips(Start)']      = freight_start
-            gdf.loc[idx, 'CommercialFreightTrips(End)']        = freight_end
-            gdf.loc[idx, 'WalkingTrips(Start)']                = walking_start
-            gdf.loc[idx, 'WalkingTrips(End)']                  = walking_end
-            gdf.loc[idx, 'PublicTransitTrips(Start)']          = transit_start
-            gdf.loc[idx, 'PublicTransitTrips(End)']            = transit_end
+    match = gdf.loc[gdf['id'].astype(str) == tract_id, "Region"]
+    if match.empty:
+        return [{'display': 'none'}] * len(ALL_FIELDS)
 
-            # overwrite the editable GPKG
-            gdf.to_file(gpkg_path, driver="GPKG")
+    region = match.iat[0]
+    allowed = set(REGION_FIELDS.get(region, []))
 
-            # re‐run the selected model script
-            import sys, subprocess
-            base, ext = os.path.splitext(gpkg_path)
-            suffix = '_with_gwr_predictions' if model_file == 'AI2.py' else '_with_predictions'
-            output_file = f"{base}{suffix}{ext}"
-            try:
-                subprocess.run(
-                    [sys.executable, model_file, gpkg_path, output_file],
-                    check=True, capture_output=True, text=True
-                )
-            except subprocess.CalledProcessError:
-                raise PreventUpdate
+    # Build and return the style list based on region
+    return [
+        {'marginBottom': '10px'} if var in allowed else {'display': 'none'}
+        for var, _, _ in ALL_FIELDS
+    ]
 
-            return gpkg_path, (current_refresh or 0) + 1
-
-        else:
-            raise PreventUpdate
-
-    # 3) Reset: delete editable & predictions files, re‐copy county
-    elif triggered == 'reset_predictions':
-        if reset_n_clicks:
-            if gpkg_path and os.path.exists(gpkg_path):
-                os.remove(gpkg_path)
-            base, ext = os.path.splitext(gpkg_path or '')
-            suffix = '_with_gwr_predictions' if model_file == 'AI2.py' else '_with_predictions'
-            pred_file = f"{base}{suffix}{ext}"
-            if os.path.exists(pred_file):
-                os.remove(pred_file)
-
-            new_path = (
-                copy_county_gpkg(county_selector_value[0])
-                if county_selector_value and len(county_selector_value)==1 else
-                None
-            )
-            return new_path, (current_refresh or 0) + 1
-        else:
-            raise PreventUpdate
-
-    else:
-        raise PreventUpdate
 
 
 # --- store_original_prediction ---
@@ -2874,7 +2507,9 @@ def store_original_prediction(tract_id, model_file, gpkg_path):
 
     # pick suffix + column
     if model_file == "AI2.py":
-        suffix, col = "_with_gwr_predictions", "GWR_Prediction"
+        suffix, col = "_with_gwr_predictions",  "GWR_Prediction"
+    elif model_file == "mgwr_predict.py":
+        suffix, col = "_with_mgwr_predictions", "MGWR_Prediction"
     else:
         suffix, col = "_with_predictions",     "Prediction"
 
@@ -2886,12 +2521,15 @@ def store_original_prediction(tract_id, model_file, gpkg_path):
         gdf = gpd.read_file(county_pred)
     else:
         gdf = gpd.read_file(DEFAULT_PRED_FILES[model_file])
-
+    # if the prediction column itself is missing, bail out
     if col not in gdf.columns:
-        # nothing to store yet
         return None
 
-    return gdf.loc[gdf['id'] == tract_id, col].iloc[0]
+    # in store_original_prediction
+    subset = gdf.loc[gdf['id'].astype(str) == str(tract_id), col]
+    if subset.empty:
+        return None
+    return subset.iloc[0]
 
 # Single callback to drive the prediction bar for both ForestISO and GWR
 @app.callback(
@@ -2913,9 +2551,11 @@ def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_pat
 
     # choose file suffix and column name based on model
     if model_file == "AI2.py":
-        suffix, col = "_with_gwr_predictions", "GWR_Prediction"
+        suffix, col = "_with_gwr_predictions",  "GWR_Prediction"
+    elif model_file == "mgwr_predict.py":
+        suffix, col = "_with_mgwr_predictions", "MGWR_Prediction"
     else:
-        suffix, col = "_with_predictions", "Prediction"
+        suffix, col = "_with_predictions",     "Prediction"
 
     base, ext = os.path.splitext(gpkg_path)
     county_pred_file = f"{base}{suffix}{ext}"

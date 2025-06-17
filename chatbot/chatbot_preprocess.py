@@ -19,25 +19,41 @@ DB_TABLE_NAME = config['general']['db_table_name']
 EMBEDDING_MODEL = config['models']['004'] 
 
 relevant_old_cols = [
-    'CaseNumber', 
-    'CaseYear', 'CrashDate', 'CrashTimeF', 
-    'CrashType', 'CrashSever','LightCondi', 
-    'WeatherCon', 'RoadwayCha', 'RoadSurfac',
-    'NumberOfFa', 'NumberOfIn', 'NumberOfSe',
-    'NumberOfOt', 'NumberOfVe', 'CountyName',
-    'CityTownNa', 'OnStreet', 'ClosestCro',
-    'POSTED_SPE', 'VehicleTyp', 'PreCrashAc',
+    # Identifiers & Time
+    'CaseNumber', 'CaseYear', 'CrashDate', 'CrashTimeF',
+    # Location & Environment
+    'CNTY_NAME', 'CityTownNa', 'OnStreet', 'ClosestCro',
+    'LightCondi', 'WeatherCon', 'RoadwayCha', 'RoadSurfac',
+    'POSTED_SPE', 'TrafficCon', 'TrafficWay', 'Intersecti',
+    # Crash Details & Severity
+    'CrashType', 'CollisionT', 'CrashSever', 'MaxInjuryS',
+    'NumberOfFa', 'NumberOfIn', 'NumberOfSe', 'NumberOfOt',
+    'NumberOfVe', 'Commercial', 'isLargeTru',
+    # Parties Involved & Contributing Factors
+    'VehicleTyp', 'VehiclyBod', 'VehicleBod', 
+    'PreCrashAc', 'PreCrash_1', 'ApparentFa',
+    'PersonType', 'PersonInju', 'DriverAgeV',
+    # Administrative
+    'ReportingA'
 ]
 
 relevant_new_col = [
-    'crash_case_number', 
-    'crash_case_year', 'crash_date','crash_time_formatted', 
-    'crash_type_description', 'crash_severity','light_condition', 
-    'weather_condition', 'roadway_character', 'road_surface_condition',
-    'number_of_fatalities', 'number_of_injuries', 'number_of_severe_injuries',
-    'number_of_other_injuries', 'number_of_vehicles_involved', 'county_name',
-    'city_town_name', 'on_street_name', 'closest_cross_street',
-    'posted_speed_limit', 'vehicle_type', 'pre_crash_action',
+    # Identifiers & Time
+    'crash_case_number', 'crash_case_year', 'crash_date', 'crash_time_formatted',
+    # Location & Environment
+    'county_name', 'city_town_name', 'on_street_name', 'closest_cross_street',
+    'light_condition', 'weather_condition', 'roadway_character', 'road_surface_condition',
+    'posted_speed_limit', 'traffic_control_device', 'trafficway_description', 'intersection_related',
+    # Crash Details & Severity
+    'crash_type_description', 'collision_type', 'crash_severity', 'maximum_injury_severity',
+    'number_of_fatalities', 'number_of_injuries', 'number_of_severe_injuries', 'number_of_other_injuries',
+    'number_of_vehicles_involved', 'commercial_vehicle_involved', 'is_large_truck_involved',
+    # Parties Involved & Contributing Factors
+    'vehicle_type', 'vehicle_body_type', 'vehicle_body_type_detailed',
+    'pre_crash_action', 'pre_crash_action_detailed', 'apparent_contributing_factor',
+    'person_type', 'person_injury_severity', 'driver_age_vehicle_1',
+    # Administrative
+    'reporting_agency'
 ]
 
 def load_data(csv_file: str, sample_size: int = 1500):
@@ -85,14 +101,137 @@ def get_embedding(text: str):
     except Exception as e:
         print(f"Error generating embedding for text: '{text[:50]}...' - {e}")
         return None
+
+def create_narrative(row: pd.Series, available_columns: list) -> str:
+    narrative_parts = []
+
+    # Helper to safely get and format a value
+    def get_val(col, default="unknown", formatter=str):
+        if col in available_columns and pd.notna(row.get(col)):
+            try:
+                return formatter(row.get(col))
+            except (ValueError, TypeError):
+                return default # Return default if formatting fails
+        return default
     
+    # 1. Core Crash Information (Date, Time, Location)
+    date_str = get_val('crash_date', "unknown date", lambda x: pd.to_datetime(x).strftime('%Y-%m-%d'))
+    time_str = get_val('crash_time_formatted', "unknown time")
+    city_str = get_val('city_town_name', "an unknown city/town")
+    county_str = get_val('county_name', "an unknown county")
+    on_street_str = get_val('on_street_name', "an unnamed street")
+    cross_street_str = get_val('closest_cross_street', None)
+
+    intro_sentence = f"On {date_str} at {time_str}, a crash occurred in {city_str}, {county_str}, on {on_street_str}"
+    if cross_street_str:
+        intro_sentence += f" near {cross_street_str}."
+    else:
+        intro_sentence += "."
+    narrative_parts.append(intro_sentence)
+
+    # 2. Environmental & Roadway Conditions
+    env_parts = []
+    if get_val('light_condition', None) != None:
+        env_parts.append(f"light conditions were {get_val('light_condition').lower()}")
+    if get_val('weather_condition', None) != None:
+        env_parts.append(f"weather was {get_val('weather_condition').lower()}")
+    if get_val('road_surface_condition', None) != None:
+        env_parts.append(f"road surface was {get_val('road_surface_condition').lower()}")
+    if env_parts:
+        narrative_parts.append(f"Environmental factors: {', '.join(env_parts)}.")
+
+    road_parts = []
+    if get_val('roadway_character', None) != None:
+        road_parts.append(f"The roadway was a {get_val('roadway_character').lower()}")
+    if get_val('trafficway_description', None) != None:
+        road_parts.append(f"described as a {get_val('trafficway_description').lower()}")
+
+    posted_speed = get_val('posted_speed_limit', None, lambda x: int(x))
+    if posted_speed is not None:
+        road_parts.append(f"with a posted speed limit of {posted_speed} mph")
+
+    if get_val('traffic_control_device', None) != None:
+        road_parts.append(f"and controlled by a {get_val('traffic_control_device').lower()}")
+    
+    intersection_related_val = get_val('intersection_related', None)
+    if intersection_related_val is not None:
+        road_parts.append(f", and was {'' if str(intersection_related_val).lower() == 'true' else 'not '}intersection-related")
+    if road_parts:
+        narrative_parts.append(f"Roadway context: {', '.join(road_parts)}.")
+
+    # 3. Crash Type & Severity
+    type_desc = get_val('crash_type_description', "an unspecified type")
+    collision_type = get_val('collision_type', "unspecified collision")
+    crash_severity = get_val('crash_severity', "unknown severity")
+    narrative_parts.append(f"It was a {type_desc} collision, specifically a {collision_type}, with a severity of {crash_severity}.")
+
+    # 4. Impact (Fatalities & Injuries)
+    fatalities = get_val('number_of_fatalities', 0, lambda x: int(x))
+    injuries = get_val('number_of_injuries', 0, lambda x: int(x))
+    severe_injuries = get_val('number_of_severe_injuries', 0, lambda x: int(x))
+    other_injuries = get_val('number_of_other_injuries', 0, lambda x: int(x))
+    
+    impact_sentence = f"The crash resulted in {fatalities} fatalities"
+    if injuries > 0:
+        impact_sentence += f" and {injuries} total injuries"
+        if severe_injuries > 0 or other_injuries > 0:
+            impact_sentence += f" ({severe_injuries} severe, {other_injuries} other injuries)."
+        else:
+            impact_sentence += "."
+    else:
+        impact_sentence += " with no injuries reported."
+    narrative_parts.append(impact_sentence)
+
+    # 5. Vehicles & Factors
+    num_vehicles = get_val('number_of_vehicles_involved', 0, lambda x: int(x))
+    narrative_parts.append(f"{num_vehicles} vehicles were involved.")
+
+    vehicle_info = []
+    if get_val('vehicle_type', None) != None:
+        vehicle_info.append(f"Vehicle type: {get_val('vehicle_type').lower()}")
+    
+    if get_val('vehicle_body_type_detailed', None) != None:
+        vehicle_info.append(f"Body type: {get_val('vehicle_body_type_detailed').lower()}")
+    elif get_val('vehicle_body_type', None) != None:
+         vehicle_info.append(f"Body type: {get_val('vehicle_body_type').lower()}") # Fallback if detailed is missing
+
+    if get_val('commercial_vehicle_involved', None) != None and str(get_val('commercial_vehicle_involved')).lower() == 'true':
+        vehicle_info.append("A commercial vehicle was involved.")
+    if get_val('is_large_truck_involved', None) != None and str(get_val('is_large_truck_involved')).lower() == 'true':
+        vehicle_info.append("A large truck was involved.")
+
+    if vehicle_info:
+        narrative_parts.append(f"Vehicle details: {'; '.join(vehicle_info)}.")
+
+    action_factor_info = []
+    if get_val('pre_crash_action_detailed', None) != None:
+        action_factor_info.append(f"Pre-crash action: {get_val('pre_crash_action_detailed').lower()}")
+    elif get_val('pre_crash_action', None) != None:
+        action_factor_info.append(f"Pre-crash action: {get_val('pre_crash_action').lower()}")
+
+    if get_val('apparent_contributing_factor', None) != None:
+        action_factor_info.append(f"Apparent contributing factor: {get_val('apparent_contributing_factor').lower()}")
+    
+    driver_age = get_val('driver_age_vehicle_1', None, lambda x: int(x))
+    if driver_age is not None:
+        action_factor_info.append(f"Driver age (Vehicle 1): {driver_age}")
+
+    if action_factor_info:
+        narrative_parts.append(f"Contributing context: {'; '.join(action_factor_info)}.")
+    
+    # 6. Reporting Agency
+    if get_val('reporting_agency', None) != None:
+        narrative_parts.append(f"Reported by: {get_val('reporting_agency')}.")
+
+    final_narrative = " ".join(narrative_parts).strip()
+    return final_narrative
+
+
 def populate_chromadb(df: pd.DataFrame):
     client = chromadb.PersistentClient(path=CHROMADB_PATH)
     collection_obj = client.get_or_create_collection(name=CHROMA_COLLECTION)
 
     # Check if ChromaDB is already populated for this collection
-    # If you want to force a re-population, you can delete the ChromaDB folder manually
-    # or add collection_obj.delete_collection() here before adding new data (use with caution!)
     if collection_obj.count() > 0:
         print(f"ChromaDB collection '{collection_obj.name}' already contains {collection_obj.count()} documents.")
         print("Skipping re-population. To re-populate, manually delete the ChromaDB data folder (e.g., './chroma_db_reports').")
@@ -107,79 +246,41 @@ def populate_chromadb(df: pd.DataFrame):
 
     for idx, row in tqdm(df.iterrows(), total=len(df), desc="Processing records"):
         # Construct a comprehensive narrative string from selected columns
-        narrative_parts = []
-        for col in relevant_new_col:
-            value = row.get(col) # Use .get() for safer access
-            if pd.notna(value) and str(value).strip() != '': # Check for NaN and empty strings
-                # Special formatting for certain fields to make the narrative more readable
-                if col == 'crash_date' and pd.api.types.is_datetime64_any_dtype(value):
-                    narrative_parts.append(f"Date: {value.strftime('%Y-%m-%d')}")
-                elif col == 'crash_case_year':
-                    narrative_parts.append(f"Year: {int(value)}")
-                elif col == 'number_of_fatalities' and int(value) > 0:
-                    narrative_parts.append(f"Fatalities: {int(value)}")
-                elif col == 'number_of_injuries' and int(value) > 0:
-                    narrative_parts.append(f"Injuries: {int(value)}")
-                elif col == 'posted_speed_limit':
-                    narrative_parts.append(f"Speed Limit: {int(value)} mph")
-                else:
-                    # General formatting for other relevant columns
-                    narrative_parts.append(f"{col.replace('_', ' ').title()}: {value}")
-        
-        chunk_text = " | ".join(narrative_parts)
-        
-        # Add a more direct summary at the beginning if possible
-        summary_intro = []
-        if 'crash_date' in row and pd.notna(row['crash_date']):
-             summary_intro.append(f"On {row['crash_date']}")
-        if 'crash_time_formatted' in row and pd.notna(row['crash_time_formatted']):
-            summary_intro.append(f"at {row['crash_time_formatted']}")
-        if 'city_town_name' in row and pd.notna(row['city_town_name']):
-            summary_intro.append(f"in {row['city_town_name']}")
-        if 'on_street_name' in row and pd.notna(row['on_street_name']):
-            summary_intro.append(f"on {row['on_street_name']}")
-        
-        if summary_intro:
-            chunk_text = f"Crash occurred {' '.join(summary_intro)}. Details: {chunk_text}"
+        chunk_text = create_narrative(row, relevant_new_col)
 
         # Skip if the chunk is essentially empty after processing
         if not chunk_text.strip():
             continue
 
-        # Prepare metadata for ChromaDB (useful for filtering/faceted search later if needed)
-        # Always include crash_case_number as the ID is generated from it
+        # Prepare metadata for ChromaDB (ensure no None values, convert types)
         metadata = {}
         
-        # crash_case_number (always include, use placeholder if missing for ID)
         crash_case_number = row.get('crash_case_number')
         metadata['crash_case_number'] = str(crash_case_number) if pd.notna(crash_case_number) else 'UNKNOWN_CASE'
 
-        # crash_case_year (integer or None, convert to int only if notna)
         if 'crash_case_year' in row and pd.notna(row['crash_case_year']):
             try:
                 metadata['crash_case_year'] = int(row['crash_case_year'])
             except (ValueError, TypeError):
-                # Handle cases where year might not be convertible to int
-                pass # Skip adding this metadata if it's invalid
+                pass
 
-        # county_name (string or None, convert to string if notna)
         county_name = row.get('county_name')
         if pd.notna(county_name):
             metadata['county_name'] = str(county_name)
 
-        # city_town_name (string or None, convert to string if notna)
         city_town_name = row.get('city_town_name')
         if pd.notna(city_town_name):
             metadata['city_town_name'] = str(city_town_name)
 
-        # crash_severity (string or None, convert to string if notna)
-        crash_severity = row.get('crash_severity')
-        if pd.notna(crash_severity):
-            metadata['crash_severity'] = str(crash_severity)
+        crash_severity_val = row.get('crash_severity')
+        if pd.notna(crash_severity_val):
+            metadata['crash_severity'] = str(crash_severity_val)
+        
+        crash_type_desc_val = row.get('crash_type_description')
+        if pd.notna(crash_type_desc_val):
+            metadata['crash_type_description'] = str(crash_type_desc_val)
         
         chunks_to_add.append(chunk_text)
-        # Use crash_case_number as a unique ID if it's always unique and present
-        # Otherwise, use a combination or the index for uniqueness.
         chunk_ids_to_add.append(f"crash_{metadata['crash_case_number']}_{idx}")
         metadatas_to_add.append(metadata)
 
@@ -211,7 +312,7 @@ def populate_chromadb(df: pd.DataFrame):
             chunks_to_add = []
             chunk_ids_to_add = []
             metadatas_to_add = []
-
+    
     # Add any remaining items after the loop
     if chunks_to_add:
         batch_embeddings = []

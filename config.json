@@ -1,10 +1,10 @@
 {
     "paths": {
         "csv_file":  "./data/Combined_Data.csv",
-        "db_file":  "./data/crash_data.db",
-        "chromadb_path": "./data/chroma_crash_data",
-        "metadata_path": "./data/Combined_Data_Metadata.json",
-        "training_data_path": "./data/Chatbot_Training_Data.json"
+        "db_file":  "./data/chatbot/crash_data.db",
+        "chromadb_path": "./data/chatbot/chroma_crash_data",
+        "metadata_path": "./data/chatbot/Combined_Data_Metadata.json",
+        "training_data_path": "./data/chatbot/Chatbot_Training_Data.json"
     },
     "general": {
         "db_table_name": "combined_data",

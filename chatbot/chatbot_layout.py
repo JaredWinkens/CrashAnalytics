@@ -10,6 +10,7 @@ def load_chatbot_layout(initial_chat_history):
                     # The 'chat-end-marker' will always be the last element
                 ]
             ),
+            
         ]),
 
         # Input area FIXED at the bottom of the viewport
@@ -24,12 +25,15 @@ def load_chatbot_layout(initial_chat_history):
                     html.I(className="fas fa-paper-plane"),
                     id='send-button',
                     n_clicks=0,
+                    title ="Send message"
                 ),
                 html.Button(
                     html.I(className="fas fa-trash"), # You can choose a different icon
                     id='clear-button',
                     n_clicks=0,
+                    title ="Clear chat history",
                     className='clear-button' # Add a class for styling
+                    
                 )
             ])
         ]),
@@ -57,6 +61,7 @@ def render_message_bubble(sender, message_content):
         return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
             html.Div(className='message-bubble bot-bubble', children=[
                 html.I(className="fas fa-robot sender-icon bot-sender-icon"),
+                html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2021", id='info-button'),
                 dcc.Markdown(message_content, className='message-content'),
                 
             ])

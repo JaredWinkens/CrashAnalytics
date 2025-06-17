@@ -14,6 +14,7 @@ GEN_MODEL = config['models']['2.0-flash']
 
 client = genai.Client(api_key=API_KEY)
 
+
 ANALYZER_ROLE = """
 You are a traffic safety analyst. 
 

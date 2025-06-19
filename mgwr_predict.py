@@ -70,10 +70,10 @@ def predict(input_gpkg, output_gpkg, models):
             preds[idx[:n]] = region_preds[:n]
         else:
             preds[idx] = region_preds
-
+    #clamps pred to 0
+    preds[preds < 0] = 0.0
     # attach predictions, converting NaN→None
     gdf['MGWR_Prediction'] = [None if np.isnan(x) else float(x) for x in preds]
-
     try:
         gdf.to_file(output_gpkg, driver='GPKG')
         logger.debug(f"Wrote MGWR predictions to {output_gpkg}")

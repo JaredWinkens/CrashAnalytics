@@ -1203,7 +1203,7 @@ def render_content(tab):
                     options=[
                         {'label': 'MGWR Model',   'value': 'mgwr_predict.py'},
                     ],
-                    value='AI.py',
+                    value='mgwr_predict.py',
                     clearable=False,
                     style={'width': '100%', 'fontSize': '12px'}
                 ),

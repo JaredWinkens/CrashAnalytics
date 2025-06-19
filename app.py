@@ -1201,8 +1201,6 @@ def render_content(tab):
                 dcc.Dropdown(
                     id='model_selector_tab4',
                     options=[
-                        {'label': 'ForestISO',     'value': 'AI.py'},
-                        {'label': 'GWR (local)',  'value': 'AI2.py'},
                         {'label': 'MGWR Model',   'value': 'mgwr_predict.py'},
                     ],
                     value='AI.py',

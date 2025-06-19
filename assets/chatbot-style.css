@@ -91,6 +91,10 @@
     color: #3B82F6;
 }
 
+#info-button{
+    float: right;
+}
+
 /* Message content styles (for <pre> and dcc.Markdown's inner content) */
 .message-content {
     margin: 0;

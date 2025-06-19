@@ -3,6 +3,7 @@ from google.genai import types
 import sqlite3
 import json
 import chromadb
+import concurrent.futures
 
 # load config settings
 config_file = open("config.json", "r")
@@ -18,6 +19,18 @@ GEN_MODEL = config['models']['1.5-flash']
 client = genai.Client(api_key=API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMADB_PATH)
 chroma_collection = chroma_client.get_or_create_collection(name=CHROMA_COLLECTION)
+
+def call_with_timeout(func, timeout, *args, **kwargs):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            print(f"Function '{func.__name__}' timed out after {timeout} seconds.")
+            return f"Function '{func.__name__}' timed out after {timeout} seconds." # Or raise a custom exception
+        except Exception as e:
+            print(f"Function '{func.__name__}' raised an exception: {e}")
+            return f"Function '{func.__name__}' raised an exception: {e}"# Re-raise the original exception
 
 def get_table_schema_dict(db_path: str, table_name: str, include_samples: bool = True, sample_limit: int = 1) -> dict:
     conn = sqlite3.connect(db_path)
@@ -131,10 +144,11 @@ Example SQL queries:
 
 Important:
 - Be precise with column names as listed in the schema.
+- Only ouput one SQL query
 - If the query cannot be answered by SQL, do not generate a SQL query.
 """
 
-def retrieve_relevant_chunks(query: str, top_k: int = 5):
+def retrieve_relevant_chunks(query: str, top_k: int = 30):
     """
     Retrieves relevant textual chunks from ChromaDB.
     """
@@ -164,6 +178,82 @@ Example usage:
 - "What generally causes crashes on highways?"
 """
 
+def get_sql_tool_response(sql_query: str, user_query: str):
+    print(f"Executing SQL Query: {sql_query}")
+    tool_result = call_with_timeout(execute_sql_query, 30, sql_query)
+    print(f"SQL Tool Result: {tool_result}")
+
+    # Now, ask Gemini to summarize the SQL result
+    summary_prompt = f"""
+    The user asked: "{user_query}"
+    I executed a SQL query and got the following result:
+    {json.dumps(tool_result['data'], indent=2)}
+
+    Please provide a concise and clear answer to the user's question based on these results.
+    If the query resulted in an error or empty data, state that no information was found.
+    """
+    final_answer_response = client.models.generate_content(
+                                            model=GEN_MODEL,
+                                            contents=summary_prompt,
+                                        )
+    return final_answer_response.text
+
+def get_rag_tool_response(rag_query: str, user_query: str):    
+    print(f"Executing RAG Query for: {rag_query}")
+    tool_result = call_with_timeout(retrieve_relevant_chunks, 30, rag_query)
+    print(f"RAG Tool Result: {tool_result}")
+
+    if tool_result['status'] == 'success' and tool_result['data']:
+        context = "\n\n".join(tool_result['data'])
+        final_answer_prompt = f"""
+        The user asked: "{user_query}"
+        I retrieved the following relevant information:
+        {context}
+
+        Please answer the user's question based ONLY on the provided information.
+        If the answer is not in the information, state that.
+        """
+        final_answer_response = client.models.generate_content(
+                                            model=GEN_MODEL,
+                                            contents=final_answer_prompt,
+                                        )
+        return final_answer_response.text
+    else:
+        return f"I couldn't find relevant information for your question via RAG: {tool_result.get('message', '')}"
+
+def get_sql_rag_tool_response(sql_query: str, rag_query: str, user_query: str):
+    
+    print(f"Executing SQL Query: {sql_query}")
+    sql_result = call_with_timeout(execute_sql_query, 30, sql_query)
+    print(f"SQL Tool Result: {sql_result}")
+
+    print(f"Executing RAG Query for: {rag_query}")
+    rag_result = call_with_timeout(retrieve_relevant_chunks, 30, rag_query)
+    print(f"RAG Tool Result: {rag_result}")
+
+    if rag_result['status'] == 'success' and rag_result['data']:
+        rag_context = "\n\n".join(rag_result['data'])
+        final_answer_prompt = f"""
+        The user asked: "{user_query}"
+        I retrieved the following relevant information:
+
+        SQL Query Result:
+        {json.dumps(sql_result['data'], indent=2)}
+
+        RAG Query Result:
+        {rag_context}
+
+        Please answer the user's question based on the provided information.
+        If the answer is not in the information, state that.
+        """
+        final_answer_response = client.models.generate_content(
+                                    model=GEN_MODEL,
+                                    contents=final_answer_prompt,
+                                )
+        return final_answer_response.text
+    else:
+        return f"I couldn't find relevant information for your question via RAG: {rag_result.get('message', '')}"
+
 def get_agent_response(user_query: str):
     """
     Gemini decides which tool to use (SQL or RAG) and executes it.
@@ -177,14 +267,16 @@ def get_agent_response(user_query: str):
 
     {RAG_TOOL_DESCRIPTION}
 
-    Based on the user's question, determine which tool to use and how to call it.
+    Based on the user's question, determine which tool (or combination of tools) to use and how to call it.
     If a precise count, sum, average, or specific filtered data from the database is needed, use the `execute_sql_query` tool.
     If a general description, summary, or narrative insight is needed, use the `retrieve_relevant_chunks` tool.
+    If the question falls under both categories above, use the `get_sql_rag_result` tool.
     If the question cannot be answered by these tools or is outside the scope of crash reports, state that.
 
     Output Format:
     - If using SQL: `TOOL_CALL: execute_sql_query('YOUR_SQL_QUERY_HERE')`
     - If using RAG: `TOOL_CALL: retrieve_relevant_chunks('YOUR_NATURAL_LANGUAGE_QUERY_HERE')`
+    - If using both: `TOOL_CALL: get_sql_rag_result('YOUR_SQL_QUERY_HERE', 'YOUR_NATURAL_LANGUAGE_QUERY_HERE')` 
     - If no tool is suitable: `NO_TOOL_NEEDED` or `I cannot answer this question.`
 
     User Question: "{user_query}"
@@ -207,51 +299,26 @@ def get_agent_response(user_query: str):
             args_str = parts[1].rstrip(')').strip()
 
             if func_name == 'execute_sql_query':
-                # Extract the SQL query string
                 sql_query = args_str.strip("'\"") # Remove potential quotes around the query
-                print(f"Executing SQL Query: {sql_query}")
-                tool_result = execute_sql_query(sql_query)
-                print(f"SQL Tool Result: {tool_result}")
-
-                # Now, ask Gemini to summarize the SQL result
-                summary_prompt = f"""
-                The user asked: "{user_query}"
-                I executed a SQL query and got the following result:
-                {json.dumps(tool_result['data'], indent=2)}
-
-                Please provide a concise and clear answer to the user's question based on these results.
-                If the query resulted in an error or empty data, state that no information was found.
-                """
-                final_answer_response = response = client.models.generate_content(
-                                                        model=GEN_MODEL,
-                                                        contents=summary_prompt,
-                                                    )
-                return final_answer_response.text
+                return get_sql_tool_response(sql_query, user_query)
 
             elif func_name == 'retrieve_relevant_chunks':
-                # Extract the RAG query string
                 rag_query = args_str.strip("'\"") # Remove potential quotes
-                print(f"Executing RAG Query for: {rag_query}")
-                tool_result = retrieve_relevant_chunks(rag_query)
-                print(f"RAG Tool Result: {tool_result}")
+                return get_rag_tool_response(rag_query, user_query)
+            
+            elif func_name == 'get_sql_rag_result':
+                print("ARGS: ",args_str)
+                start_arg1 = args_str.index("'") + 1
+                end_arg1 = args_str.index("'", start_arg1)
+                sql_query = args_str[start_arg1:end_arg1]
+                print(sql_query)
+                start_arg2_search_pos = end_arg1 + 1 # Start searching after the first argument's closing quote
+                start_arg2 = args_str.index("'", start_arg2_search_pos) + 1
+                end_arg2 = args_str.index("'", start_arg2)
+                rag_query = args_str[start_arg2:end_arg2]
+                print(rag_query)
 
-                if tool_result['status'] == 'success' and tool_result['data']:
-                    context = "\n\n".join(tool_result['data'])
-                    final_answer_prompt = f"""
-                    The user asked: "{user_query}"
-                    I retrieved the following relevant information:
-                    {context}
-
-                    Please answer the user's question based ONLY on the provided information.
-                    If the answer is not in the information, state that.
-                    """
-                    final_answer_response = response = client.models.generate_content(
-                                                        model=GEN_MODEL,
-                                                        contents=final_answer_prompt,
-                                                    )
-                    return final_answer_response.text
-                else:
-                    return f"I couldn't find relevant information for your question via RAG: {tool_result.get('message', '')}"
+                return get_sql_rag_tool_response(sql_query, rag_query, user_query)
 
             else:
                 return "Error: Unknown tool function identified by Gemini."

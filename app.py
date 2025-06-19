@@ -16,9 +16,10 @@ import geopandas as gpd
 import math
 import json
 import subprocess
-from chatbot.chatbot_layout import load_chatbot_layout, render_message_bubble
-from chatbot.chatbot import generate_response
-from analyzer.analyzer import get_insights
+import chatbot.chatbot_layout as chatbotlayout
+import chatbot.chatbot as chatbotv1
+import chatbot.chatbot_v2 as chatbotv2
+import analyzer.analyzer as analyzer
 
 # all editable fields for prediction tab
 ALL_FIELDS = [
@@ -1280,7 +1281,7 @@ def render_content(tab):
         ], className='desktop-layout')
     
     elif tab == 'tab-5': # Chatbot Tab
-        return load_chatbot_layout(
+        return chatbotlayout.load_chatbot_layout(
             [{"sender": "bot", "message": "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
             "**Example Prompts**\n\n" \
             "- Can you summarize the crash data from 2020, focusing on common causes?\n\n" \
@@ -1316,7 +1317,7 @@ def generate_insights(n_clicks, fig_snapshot):
 
         #pio.write_image(fig_snapshot, "density_map.png", scale=1, width=fig_width, height=fig_height)
         image_bytes = pio.to_image(fig=fig_snapshot, format='png', scale=1, width=fig_width, height=fig_height)
-        insghts = get_insights(image_bytes=image_bytes)
+        insghts = analyzer.get_insights(image_bytes=image_bytes)
 
         return insghts
     return dash.no_update
@@ -1373,7 +1374,8 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
 
     user_question = user_question_data["question"]
 
-    bot_response_message_content = generate_response(user_question)
+    #bot_response_message_content = chatbotv1.generate_response(user_question)
+    bot_response_message_content = chatbotv2.get_agent_response(user_question)
     
     # Remove loading message
     current_chat_data.pop()
@@ -1397,7 +1399,7 @@ def update_chat_display(stored_chat_data):
     if stored_chat_data is None:
         raise dash.exceptions.PreventUpdate
 
-    rendered_history_elements = [render_message_bubble(msg['sender'], msg['message']) for msg in stored_chat_data]
+    rendered_history_elements = [chatbotlayout.render_message_bubble(msg['sender'], msg['message']) for msg in stored_chat_data]
     rendered_history_elements.append(html.Div(id='chat-end-marker'))
     return rendered_history_elements, stored_chat_data, 0
 

@@ -2,8 +2,14 @@ import time
 from google import genai
 from google.genai import types
 import json
-from chatbot.chatbot_config import *
-client = genai.Client(api_key="AIzaSyBQ2Ca6HSly3DdXo4e35Nd1PjoroVSyFzs") # Get the key from the GOOGLE_API_KEY env variable
+
+# load config settings
+config_file = open("config.json", "r")
+config = json.load(config_file)
+API_KEY = config['general']['api_key']
+TRAINING_DATA_PATH = config['paths']['training_data_path']
+
+client = genai.Client(api_key=API_KEY) # Get the key from the GOOGLE_API_KEY env variable
 
 for model_info in client.models.list():
     print(model_info.name)

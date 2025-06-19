@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+"""
+predict_mgwr.py
+
+A utility to load MGWR models and generate predictions into a GeoPackage,
+using 'GEOIDFQ' as the tract identifier.
+"""
 import sys
 import os
 import logging
@@ -25,7 +32,7 @@ def load_models(path):
         sys.exit(1)
 
 def predict(input_gpkg, output_gpkg, models):
-    """Read input GPKG, generate MGWR_Prediction, write out new GPKG."""
+    """Read input GPKG, generate MGWR_Prediction, and write out new GPKG."""
     try:
         gdf = gpd.read_file(input_gpkg)
         logger.debug(f"Loaded {len(gdf)} features from {input_gpkg}")
@@ -33,12 +40,17 @@ def predict(input_gpkg, output_gpkg, models):
         logger.error(f"Error reading '{input_gpkg}': {e}")
         sys.exit(1)
 
-    # ───── Preserve or create an 'id' column ─────
-    if 'id' not in gdf.columns:
+    # ───── Use GEOIDFQ as the primary ID ─────
+    if 'GEOIDFQ' in gdf.columns:
+        gdf = gdf.copy()
+        gdf['id'] = gdf['GEOIDFQ'].astype(str)
+        logger.debug("Using 'GEOIDFQ' column for id")
+    elif 'id' not in gdf.columns:
         gdf = gdf.copy()
         gdf['id'] = gdf.index.astype(str)
+        logger.debug("No 'GEOIDFQ' or 'id' column found; using index as id")
 
-    # prepare an array of NaNs
+    # prepare an array of NaNs for predictions
     preds = np.full(len(gdf), np.nan, dtype=float)
 
     # ───── Loop over each region and assign predictions ─────

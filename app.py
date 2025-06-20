@@ -1201,11 +1201,9 @@ def render_content(tab):
                 dcc.Dropdown(
                     id='model_selector_tab4',
                     options=[
-                        {'label': 'ForestISO',     'value': 'AI.py'},
-                        {'label': 'GWR (local)',  'value': 'AI2.py'},
                         {'label': 'MGWR Model',   'value': 'mgwr_predict.py'},
                     ],
-                    value='AI.py',
+                    value='mgwr_predict.py',
                     clearable=False,
                     style={'width': '100%', 'fontSize': '12px'}
                 ),
@@ -1236,7 +1234,17 @@ def render_content(tab):
                 html.Div(
                     [ make_field_row(var, LABELS[var], STEPS[var]) for var,_,_ in ALL_FIELDS ],
                     id="modal_fields_container"
-                )
+                ),
+                html.Div([
+                html.Button("Apply Updated Data",
+                    id="apply_updated_data",
+                    n_clicks=0,
+                    style={'marginRight':'10px','fontSize':'12px'}),
+                html.Button("Reset Predictions",
+                    id="reset_predictions",
+                    n_clicks=0,
+                    style={'fontSize':'12px'})
+                    ], style={'marginTop':'10px','textAlign':'center'}),
             ], className='responsive-controls'),
             # Right-side: Predictions Map
             html.Div([
@@ -2183,6 +2191,11 @@ def update_modal_values(*all_args):
         if not (selected_tract and gpkg_path and os.path.exists(gpkg_path)):
             raise PreventUpdate
         gdf = gpd.read_file(gpkg_path)
+        rename_map = {
+            v.replace('(','.').replace(')','.'): v
+            for v in FIELD_IDS
+        }
+        gdf = gdf.rename(columns=rename_map)
         row = gdf[gdf["id"].astype(str) == str(selected_tract)]
         if row.empty:
             raise PreventUpdate

@@ -4,21 +4,20 @@ import sqlite3
 import json
 import chromadb
 import concurrent.futures
-
+from pydantic import BaseModel
 # load config settings
 config_file = open("config.json", "r")
 config = json.load(config_file)
 API_KEY = config['general']['api_key']
 CHROMADB_PATH = config['paths']['chromadb_path']
-CHROMA_COLLECTION = config['general']['chroma_collection']
 DB_FILE = config['paths']['db_file']
-DB_TABLE_NAME = config['general']['db_table_name'] 
+DATASET_CONFIG_PATH = config['paths']['dataset_config_path'] 
 EMBEDDING_MODEL = config['models']['004'] 
-GEN_MODEL = config['models']['1.5-flash']
+GEN_MODEL = config['models']['2.0-flash']
 
-client = genai.Client(api_key=API_KEY)
+gemini_client = genai.Client(api_key=API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMADB_PATH)
-chroma_collection = chroma_client.get_or_create_collection(name=CHROMA_COLLECTION)
+chroma_collections = chroma_client.list_collections()
 
 def call_with_timeout(func, timeout, *args, **kwargs):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -32,7 +31,7 @@ def call_with_timeout(func, timeout, *args, **kwargs):
             print(f"Function '{func.__name__}' raised an exception: {e}")
             return f"Function '{func.__name__}' raised an exception: {e}"# Re-raise the original exception
 
-def get_table_schema_dict(db_path: str, table_name: str, include_samples: bool = True, sample_limit: int = 1) -> dict:
+def get_table_schema_dict(db_path: str, table_name: str, table_desc: str, include_samples: bool = True, sample_limit: int = 1) -> dict:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
@@ -61,6 +60,7 @@ def get_table_schema_dict(db_path: str, table_name: str, include_samples: bool =
     # Build dict structure
     schema = {
         "table_name": table_name,
+        "table_desc": table_desc,
         "columns": []
     }
 
@@ -78,15 +78,21 @@ def get_table_schema_dict(db_path: str, table_name: str, include_samples: bool =
 
 def format_schema(schema_dict: dict) -> str:
     """Formats schema dictionary into a readable prompt-friendly string."""
-    lines = [f"Table: {schema_dict['table_name']}", "Columns:"]
+    lines = [f"Table Name: {schema_dict['table_name']}", f"Table Description: {schema_dict['table_desc']}", "Columns:"]
     for col in schema_dict["columns"]:
         sample = f" e.g., {', '.join(str(s) for s in col['sample'])}" if col.get("sample") else ""
         lines.append(f'- {col["name"]} ({col["type"]}){sample}')
     return "\n".join(lines)
 
-schema = get_table_schema_dict(DB_FILE, DB_TABLE_NAME, True, 3)
-formatted_schema = format_schema(schema)
-DB_SCHEMA_DESCRIPTION = formatted_schema
+file = open(DATASET_CONFIG_PATH, "r")
+data_sources = json.load(file)
+table_schemas = []
+for source in data_sources:
+    schema = get_table_schema_dict(DB_FILE, source['name'], source['description'], True, 3)
+    formatted_schema = format_schema(schema)
+    table_schemas.append(formatted_schema)
+
+DB_SCHEMA_DESCRIPTION = "\n\n".join(table_schemas)
 
 def get_embedding(text: str):
     tokens = text.split()
@@ -97,7 +103,7 @@ def get_embedding(text: str):
             print(f"Warning: Text too long or empty for embedding. Truncating or skipping: {text[:100]}...")
             text = str(tokens[:8000]) # Truncate if too long
             if not text: return None
-        response = client.models.embed_content(
+        response = gemini_client.models.embed_content(
                 model=EMBEDDING_MODEL,
                 contents=text,
                 config=types.EmbedContentConfig(
@@ -135,37 +141,53 @@ Tool Name: `execute_sql_query`
 Description: Executes a SQL query against the SQLite database.
 Usage: Call this tool when the user's question requires aggregation (e.g., COUNT, SUM, AVG), filtering by precise values (e.g., year, city, street name), or retrieving specific structured data from the database.
 Input: A single string argument representing the SQL query.
-Table Schema:
+Database Schema:
 {DB_SCHEMA_DESCRIPTION}
 Example SQL queries:
-- Count crashes in 2020: `SELECT COUNT(*) FROM {DB_TABLE_NAME} WHERE CAST(crash_case_year AS INTEGER) = 2020`
-- List all different kinds of incidents: `SELECT DISTINCT crash_type_description FROM {DB_TABLE_NAME}`
-- What is the average count of serious injuries?: `SELECT AVG(number_of_severe_injuries) FROM {DB_TABLE_NAME}`
+- How many crashes in each year?: `SELECT Case_Year, COUNT(Case_Number) AS Total_Crashes FROM Intersection GROUP BY Case_Year ORDER BY Case_Year DESC;`
+- What is the average number of injuires for crashes involving a commercial vehicle?: `SELECT AVG(Number_of_Injuries) AS Average_Injuries FROM Intersection WHERE Commercial_Vehicle_Involved = 1;`
+- Show me all crashes in Buffalo where people were injured and the road was wet: `SELECT Case_Number, Crash_Date, Crash_Time_Formatted, Maximum_Injury_Severity FROM Intersection WHERE City_Town_Name = 'Buffalo' AND Road_Surface_Condition = 'WET' AND Crash_Severity = 'INJURY' ORDER BY Crash_Date DESC;`
+- Retrive the age and sex of people involved in crashes resulting in a serious injury: `SELECT ip.Case_Number, ip.Person_Type, ip.Age, ip.Sex FROM IntersectionPerson ip WHERE ip.Injury_Severity = 'A - SERIOUS INJURY';`
+- Show me the collision type and max injury severity for each person involved in an accident in Erie county: `SELECT i.Case_Number, i.Collision_Type, i.Crash_Date, ip.Person_Type, ip.Injury_Severity AS Person_Injury_Severity FROM Intersection i JOIN IntersectionPerson ip ON i.Case_Number = ip.Case_Number WHERE i.County_Name = 'Erie' ORDER BY Crash_Date DESC, i.Case_Number, ip.Person_Sequence_Number;`
 
 Important:
-- Be precise with column names as listed in the schema.
+- Be precise with column names as listed in the schema
+- Join tables when necessary
 - Only ouput one SQL query
 - If the query cannot be answered by SQL, do not generate a SQL query.
 """
 
-def retrieve_relevant_chunks(query: str, top_k: int = 30):
+def retrieve_relevant_chunks(query: str, top_k: int = 10):
     """
     Retrieves relevant textual chunks from ChromaDB.
     """
-    try:
-        query_embedding = get_embedding(query)
-        if query_embedding is None:
-            return {"status": "error", "message": "Could not generate embedding for query."}
-
-        results = chroma_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=['documents'] # Only retrieve the document text
-        )
-        relevant_docs = results['documents'][0]
-        return {"status": "success", "data": relevant_docs}
-    except Exception as e:
-        return {"status": "error", "message": f"ChromaDB retrieval error: {e}"}
+    combined_results = []
+    query_embedding = get_embedding(query)
+    if query_embedding is None:
+        return {"status": "error", "message": "Could not generate embedding for query."}
+    
+    for collection_obj in chroma_collections:
+        try:
+            results = collection_obj.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+                include=['documents', 'distances']
+            )
+            if results and results['documents']:
+                for i in range(len(results['documents'][0])):
+                    combined_results.append({
+                        'collection': collection_obj.name,
+                        'document': results['documents'][0][i],
+                        'distance': results['distances'][0][i]
+                    })
+        except Exception as e:
+            print(f"Error querying {collection_obj.name}: {e}")
+            continue
+    
+    combined_results.sort(key=lambda x: x['distance'])
+    relevant_docs = []
+    for result in combined_results: relevant_docs.append(result['document']) 
+    return {"status": "success", "data": relevant_docs}
     
 # Describe the RAG tool for Gemini's understanding
 RAG_TOOL_DESCRIPTION = f"""
@@ -192,7 +214,7 @@ def get_sql_tool_response(sql_query: str, user_query: str):
     Please provide a concise and clear answer to the user's question based on these results.
     If the query resulted in an error or empty data, state that no information was found.
     """
-    final_answer_response = client.models.generate_content(
+    final_answer_response = gemini_client.models.generate_content(
                                             model=GEN_MODEL,
                                             contents=summary_prompt,
                                         )
@@ -213,7 +235,7 @@ def get_rag_tool_response(rag_query: str, user_query: str):
         Please answer the user's question based ONLY on the provided information.
         If the answer is not in the information, state that.
         """
-        final_answer_response = client.models.generate_content(
+        final_answer_response = gemini_client.models.generate_content(
                                             model=GEN_MODEL,
                                             contents=final_answer_prompt,
                                         )
@@ -246,13 +268,17 @@ def get_sql_rag_tool_response(sql_query: str, rag_query: str, user_query: str):
         Please answer the user's question based on the provided information.
         If the answer is not in the information, state that.
         """
-        final_answer_response = client.models.generate_content(
+        final_answer_response = gemini_client.models.generate_content(
                                     model=GEN_MODEL,
                                     contents=final_answer_prompt,
                                 )
         return final_answer_response.text
     else:
         return f"I couldn't find relevant information for your question via RAG: {rag_result.get('message', '')}"
+
+class Tool(BaseModel):
+    function_name: str
+    function_arguments: list[str]
 
 def get_agent_response(user_query: str):
     """
@@ -274,62 +300,47 @@ def get_agent_response(user_query: str):
     If the question cannot be answered by these tools or is outside the scope of crash reports, state that.
 
     Output Format:
-    - If using SQL: `TOOL_CALL: execute_sql_query('YOUR_SQL_QUERY_HERE')`
-    - If using RAG: `TOOL_CALL: retrieve_relevant_chunks('YOUR_NATURAL_LANGUAGE_QUERY_HERE')`
-    - If using both: `TOOL_CALL: get_sql_rag_result('YOUR_SQL_QUERY_HERE', 'YOUR_NATURAL_LANGUAGE_QUERY_HERE')` 
-    - If no tool is suitable: `NO_TOOL_NEEDED` or `I cannot answer this question.`
+    - If using the `execute_sql_query` tool: `function_name` = execute_sql_query, `function_arguments` = ['YOUR_SQL_QUERY_HERE;']
+    - If using the `retrieve_relevant_chunks` tool: `function_name` = retrieve_relevant_chunks, `function_arguments` = ['YOUR_NATURAL_LANGUAGE_QUERY_HERE']
+    - If using both tools: `function_name` = get_sql_rag_result, `function_arguments` = ['YOUR_SQL_QUERY_HERE;', 'YOUR_NATURAL_LANGUAGE_QUERY_HERE']
+    - If no tool is suitable: `function_name` = no_tool_needed, `function_arguments` = ['explain why']
 
     User Question: "{user_query}"
     """
     print(f"\n--- Gemini's Tool Decision Prompt ---\n{decision_prompt}\n----------------------------------")
     try:
-        response = client.models.generate_content(
+        response = gemini_client.models.generate_content(
             model=GEN_MODEL,
             contents=decision_prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=Tool
+            )
         )
-        tool_instruction = response.text.strip()
-        print(f"Gemini's decision: {tool_instruction}")
+        tool_instruction: Tool = response.parsed
+        print(f"Gemini's decision: {tool_instruction.function_name}\n Args: {tool_instruction.function_arguments}")
 
-        if tool_instruction.startswith("TOOL_CALL:"):
-            # Parse the tool call (simple parsing, be careful with complex SQL)
-            call_string = tool_instruction.replace("TOOL_CALL: ", "").strip()
-            # Find the function name and arguments
-            parts = call_string.split('(', 1) # Split only on the first '('
-            func_name = parts[0].strip()
-            args_str = parts[1].rstrip(')').strip()
+        if tool_instruction.function_name == 'execute_sql_query':
+            sql_query = tool_instruction.function_arguments[0].strip("'\"") # Remove potential quotes around the query
+            return get_sql_tool_response(sql_query, user_query)
 
-            if func_name == 'execute_sql_query':
-                sql_query = args_str.strip("'\"") # Remove potential quotes around the query
-                return get_sql_tool_response(sql_query, user_query)
-
-            elif func_name == 'retrieve_relevant_chunks':
-                rag_query = args_str.strip("'\"") # Remove potential quotes
-                return get_rag_tool_response(rag_query, user_query)
-            
-            elif func_name == 'get_sql_rag_result':
-                print("ARGS: ",args_str)
-                start_arg1 = args_str.index("'") + 1
-                end_arg1 = args_str.index("'", start_arg1)
-                sql_query = args_str[start_arg1:end_arg1]
-                print(sql_query)
-                start_arg2_search_pos = end_arg1 + 1 # Start searching after the first argument's closing quote
-                start_arg2 = args_str.index("'", start_arg2_search_pos) + 1
-                end_arg2 = args_str.index("'", start_arg2)
-                rag_query = args_str[start_arg2:end_arg2]
-                print(rag_query)
-
-                return get_sql_rag_tool_response(sql_query, rag_query, user_query)
-
-            else:
-                return "Error: Unknown tool function identified by Gemini."
-
-        elif tool_instruction == "NO_TOOL_NEEDED" or tool_instruction.startswith("I cannot answer"):
-            return tool_instruction # Gemini decided not to use a tool or couldn't answer
+        elif tool_instruction.function_name == 'retrieve_relevant_chunks':
+            rag_query = tool_instruction.function_arguments[0].strip("'\"") # Remove potential quotes
+            return get_rag_tool_response(rag_query, user_query)
+        
+        elif tool_instruction.function_name == 'get_sql_rag_result':
+            sql_query = tool_instruction.function_arguments[0].strip("'\"")
+            rag_query = tool_instruction.function_arguments[1].strip("'\"")
+            return get_sql_rag_tool_response(sql_query, rag_query, user_query)
+        
+        elif tool_instruction.function_name == 'no_tool_needed':
+            return tool_instruction.function_arguments[0].strip("'\"")
+        
         else:
-            return "Error: Unexpected output from Gemini's tool decision. " + tool_instruction
+            return "Error: Unknown tool function identified by Gemini."
 
     except Exception as e:
-        return f"An error occurred during tool orchestration: {e}"
+        return f"An error occurred while retriving the data: {e}"
 
 if __name__ == "__main__":
     print("\n--- Hybrid Agentic System Ready ---")

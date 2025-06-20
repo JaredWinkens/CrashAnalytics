@@ -1,14 +1,11 @@
 {
     "paths": {
-        "csv_file":  "./data/Combined_Data.csv",
         "db_file":  "./data/chatbot/crash_data.db",
         "chromadb_path": "./data/chatbot/chroma_crash_data",
-        "metadata_path": "./data/chatbot/Combined_Data_Metadata.json",
-        "training_data_path": "./data/chatbot/Chatbot_Training_Data.json"
+        "dataset_config_path": "./chatbot/datasets.json",
+        "training_data_path": "./chatbot/training_data.json"
     },
     "general": {
-        "db_table_name": "combined_data",
-        "chroma_collection": "crash_report_chunks",
         "api_key": "AIzaSyBQ2Ca6HSly3DdXo4e35Nd1PjoroVSyFzs"
     },
     "models": {

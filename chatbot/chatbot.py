@@ -11,7 +11,7 @@ config_file = open("config.json", "r")
 config = json.load(config_file)
 API_KEY = config['general']['api_key']
 DB_FILE = config['paths']['db_file']
-DB_TABLE_NAME = config['general']['db_table_name'] 
+DB_TABLE_NAME = "Intersection" 
 GEN_MODEL = config['models']['1.5-flash']
 MAX_TOKENS = 250_000
 

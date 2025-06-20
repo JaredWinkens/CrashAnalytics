@@ -1,0 +1,25 @@
+1. Retrieve all details for case number 38264060.
+
+2. Can you summarize the crash data from 2020, focusing on common causes?
+
+3. Show me the top 5 cities with the highest number of crashes in 2021, along with their count.
+
+4. How many crashes happened in 2020?
+
+5. List all different kinds of crashes.
+
+6. What is the average age of drivers in all incidents?
+
+7. List crashes that occurred in New York grouped by month.
+
+8. How many crashes involving deer occurred in 2020?
+
+9. What is the average count of serious injuries?
+
+10. Calculate the average crash rate in 2021.
+
+11. What is the peak count of fatalities?
+
+12. How many crashes happened during the day vs the night in 2020?
+
+13. Count incidents where a large truck was involved.

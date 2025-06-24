@@ -1,4 +1,6 @@
 from dash import dcc, html
+import plotly.express as px
+import pandas as pd
 
 def load_chatbot_layout(initial_chat_history):
     return html.Div(className='app-container', children=[
@@ -50,19 +52,30 @@ def load_chatbot_layout(initial_chat_history):
     ])
 
 # Function to render a single message bubble
-def render_message_bubble(sender, message_content):
-    if sender == "user":
-        return html.Div(className='message-bubble-wrapper user-bubble-wrapper', children=[
-            html.Div(className='message-bubble user-bubble', children=[
-                dcc.Markdown(message_content, className='message-content'),
-            ])
+def render_user_message_bubble(message_content):
+    return html.Div(className='message-bubble-wrapper user-bubble-wrapper', children=[
+        html.Div(className='message-bubble user-bubble', children=[
+            dcc.Markdown(message_content, className='message-content'),
         ])
-    else: # sender == "bot"
+    ])
+    
+
+def render_bot_message_bubble(message_content, fig):
+    if fig == None:
         return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
             html.Div(className='message-bubble bot-bubble', children=[
                 html.I(className="fas fa-robot sender-icon bot-sender-icon"),
                 html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
                 dcc.Markdown(message_content, className='message-content'),
                 
+            ])
+        ])
+    elif fig != None:        
+        return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
+            html.Div(className='message-bubble bot-bubble', children=[
+                html.I(className="fas fa-robot sender-icon bot-sender-icon"),
+                html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
+                dcc.Markdown(message_content, className='message-content'),
+                dcc.Graph(id='crash-map', figure=fig)
             ])
         ])

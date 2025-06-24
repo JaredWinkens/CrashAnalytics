@@ -51,22 +51,33 @@ def get_embedding(text: str):
         print(f"Error generating embedding for text: '{text[:50]}...' - {e}")
         return None
 
-def generate_narrative(row_data: list, relevant_cols: list, data_desc: str, data_name: str):
-    summary_prompt = f"""
-    Given the following dataset name, description, column names and their corresponding data from a single row of the dataset, provide a narrative description/summary of this row in a single paragraph. 
+def generate_row_summary(row_data: list, relevant_cols: list, data_desc: str, data_name: str, llm_mode: bool = False):
+    result = ""
+    if llm_mode:
+        summary_prompt = f"""
+        Dataset Name: {data_name}
+        
+        Dataset Description: {data_desc}
+        
+        Column Names: {relevant_cols}
+        
+        Row Data: {row_data}
 
-    Make sure no information is omitted.
+        Task:
+        Write a concise and human-readable summary of the data row above, incorporating as much relevant context as possible from the schema.
 
-    Dataset Name: {data_name}
-    Dataset Description: {data_desc}
-    Column Names: {relevant_cols}
-    Row Data: {row_data}
-    """
-    #print(summary_prompt)
-    response = ollama.generate(model="llama3", prompt=summary_prompt)
-    return response['response']
+        Do not inlude any preamble, only output the summary.
+        """
+        #print(summary_prompt)
+        response = ollama.generate(model="llama3", prompt=summary_prompt)
+        result = response['response']
+    else:
+        summary = []
+        for i, col in enumerate(relevant_cols): summary.append(f"{col}: {row_data[i]}")
+        result = " | ".join(summary)
+    return result
 
-def create_chroma_collection(df: pd.DataFrame, collection_name: str, collection_desc: str, relevant_cols: list):
+def create_chroma_collection(df: pd.DataFrame, collection_name: str, collection_desc: str, metas):
 
     # Check if the collection exists
     try:
@@ -82,34 +93,36 @@ def create_chroma_collection(df: pd.DataFrame, collection_name: str, collection_
     print(f"Collection '{collection_name}' created successfully.")
 
     print(f"Generating descriptive chunks for {len(df)} crash records and populating ChromaDB collection {collection_name}...")
-    batch_size = 100 # Process in batches to manage memory and API calls efficiently
+    batch_size = 50 # Process in batches to manage memory and API calls efficiently
     
     chunks_to_add = []
     chunk_ids_to_add = []
-    #metadatas_to_add = []
+    metadatas_to_add = []
 
     for idx, row in tqdm(df.iterrows(), total=len(df), desc=f"Processing records for {collection_name}"):
         # Construct a comprehensive narrative string from selected columns
-        chunk_text = generate_narrative(row.tolist(), relevant_cols, collection_desc, collection_name)
+        chunk_text = generate_row_summary(row.tolist(), df.columns.to_list(), collection_desc, collection_name, llm_mode=True)
         #print(f"CHUNK #{idx}: ", chunk_text)
+        #time.sleep(1)
         # Skip if the chunk is essentially empty after processing
         if not chunk_text.strip():
             continue
 
         # Prepare metadata for ChromaDB (ensure no None values, convert types)
-        # metadata = {}
+        metadata = {}
+
+        for col in metas: metadata[col] = str(row.get(col))
         
         chunks_to_add.append(chunk_text)
-        #chunk_ids_to_add.append(f"crash_{metadata['crash_case_number']}_{idx}")
         chunk_ids_to_add.append(f'{idx}')
-        # metadatas_to_add.append(metadata)
+        metadatas_to_add.append(metadata)
 
         # Add to ChromaDB in batches
         if len(chunks_to_add) >= batch_size:
             batch_embeddings = []
             valid_batch_chunks = []
             valid_batch_ids = []
-            #valid_batch_metadatas = []
+            valid_batch_metadatas = []
 
             for j, chunk in enumerate(chunks_to_add):
                 embedding = get_embedding(chunk)
@@ -117,7 +130,7 @@ def create_chroma_collection(df: pd.DataFrame, collection_name: str, collection_
                     batch_embeddings.append(embedding)
                     valid_batch_chunks.append(chunk)
                     valid_batch_ids.append(chunk_ids_to_add[j])
-                    #valid_batch_metadatas.append(metadatas_to_add[j])
+                    valid_batch_metadatas.append(metadatas_to_add[j])
                 else:
                     print(f"Skipping chunk {chunk_ids_to_add[j]} due to embedding error.")
 
@@ -125,20 +138,21 @@ def create_chroma_collection(df: pd.DataFrame, collection_name: str, collection_
                 collection_obj.add(
                     embeddings=batch_embeddings,
                     documents=valid_batch_chunks,
-                    #metadatas=valid_batch_metadatas,
+                    metadatas=valid_batch_metadatas,
                     ids=valid_batch_ids
                 )
             # Reset for next batch
             chunks_to_add = []
             chunk_ids_to_add = []
-            #metadatas_to_add = []
+            metadatas_to_add = []
+            #time.sleep(30)
     
     # Add any remaining items after the loop
     if chunks_to_add:
         batch_embeddings = []
         valid_batch_chunks = []
         valid_batch_ids = []
-        #valid_batch_metadatas = []
+        valid_batch_metadatas = []
 
         for j, chunk in enumerate(chunks_to_add):
             embedding = get_embedding(chunk)
@@ -147,7 +161,7 @@ def create_chroma_collection(df: pd.DataFrame, collection_name: str, collection_
                 batch_embeddings.append(embedding)
                 valid_batch_chunks.append(chunk)
                 valid_batch_ids.append(chunk_ids_to_add[j])
-                #valid_batch_metadatas.append(metadatas_to_add[j])
+                valid_batch_metadatas.append(metadatas_to_add[j])
             else:
                 print(f"Skipping chunk {chunk_ids_to_add[j]} due to embedding error.")
 
@@ -155,7 +169,7 @@ def create_chroma_collection(df: pd.DataFrame, collection_name: str, collection_
             collection_obj.add(
                 embeddings=batch_embeddings,
                 documents=valid_batch_chunks,
-                #metadatas=valid_batch_metadatas,
+                metadatas=valid_batch_metadatas,
                 ids=valid_batch_ids
             )
 
@@ -166,11 +180,12 @@ def main():
 
     file = open(DATASET_CONFIG_PATH, "r")
     data_sources = json.load(file)
-    sample_size = 1000
+    sample_size = 1500
     # Process datasources
     for source in data_sources:
         name = source['name']
         desc = source['description']
+        meta = source['metadata']
         data = pd.read_csv(source['path'], header=0, parse_dates=source['date_columns'], usecols=source['relevant_columns'])
         data = data.rename(columns=source['column_name_map'])
         data_sampled = data.sample(n=sample_size, random_state=42)
@@ -178,7 +193,7 @@ def main():
         # Create SQL table from dataframe
         create_sql_table(data_sampled, name)
         # Create Chroma collection from dataframe
-        create_chroma_collection(data_sampled, name, desc, source['relevant_columns'])
+        create_chroma_collection(data_sampled, name, desc, meta)
 
 
 if __name__ == "__main__":

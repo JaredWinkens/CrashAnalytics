@@ -244,6 +244,13 @@
     text-decoration: underline;
 }
 
+#crash-map {
+    height: 60vh;
+    width: 75vh;
+    padding: 30px;
+    box-sizing: border-box;
+}
+
 /* Scrollbar styling for a sleeker look (Webkit browsers like Chrome, Safari) */
 #chat-history-container::-webkit-scrollbar {
     width: 6px; /* Thinner scrollbar for mobile */

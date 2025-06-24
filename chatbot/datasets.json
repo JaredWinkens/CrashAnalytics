@@ -6,16 +6,14 @@
         "description": "This dataset is a comprehensive collection of crash data specifically focused on incidents occurring at intersections, providing valuable insights into the factors contributing to these events, their severity, and the characteristics of the involved roadways and environment.",
         "date_columns": ["CrashDate", "DMVInsertD"],
         "relevant_columns": [
-            "CaseNumber", "OBJECTID", "X", "Y", "MaxInjuryS", "CrashSever", 
-            "RoadwayAcc", "CaseYear", "CollisionT", "CrashDate", "CrashTimeF", 
+            "CaseNumber", "X", "Y", "MaxInjuryS", "CrashSever", 
+            "RoadwayAcc", "CaseYear", "CrashDate", "CrashTimeF", 
             "CrashType", "LightCondi", "RoadwayCha", "RoadSurfac", "TrafficCon", 
             "TrafficWay", "WeatherCon", "Commercial", "DMVInsertD", "NumberOfFa", 
             "NumberOfIn", "NumberOfOt", "NumberOfSe", "NumberOfVe", "PoliceDept", 
-            "NonReporta", "ReportingA", "NonPublicW", "UTMEasting", "UTMNorthin", 
-            "Intersecti", "ClosestCro", "CountyName", "DirectionF", "DistanceFr", 
-            "MasterInte", "CityTownNa", "OnStreet", "ReferenceM", "ACCESS_CON", 
-            "DIVIDED", "FUNCTIONAL", "MAINT_JURI", "OWNING_JUR", "NAME", 
-            "POSTED_SPE", "ApparentFa"
+            "ReportingA", "Intersecti", "ClosestCro", "CountyName", "DirectionF", 
+            "DistanceFr", "CityTownNa", "OnStreet", "FUNCTIONAL", 
+            "MAINT_JURI", "OWNING_JUR", "NAME", "POSTED_SPE", "ApparentFa"
         ],
         "column_name_map": {
             "CaseNumber": "Case_Number",
@@ -66,7 +64,8 @@
             "NAME": "Road_Name",
             "POSTED_SPE": "Posted_Speed_Limit",
             "ApparentFa": "Apparent_Contributing_Factor"
-        }
+        },
+        "metadata": ["Case_Number", "Case_Year", "County_Name", "City_Town_Name", "Crash_Severity", "Crash_Type"]
     },
 
     {
@@ -75,9 +74,8 @@
         "description": "This dataset provides granular data on individuals involved in intersection-related crashes, allowing for analysis of injury severity in relation to demographic factors, seating position, and safety device usage.",
         "date_columns": [],
         "relevant_columns": [
-            "CaseNumber","OBJECTID","MaxInjuryS",
-            "CrashSever","UTMEasting","UTMNorthin",
-            "UnitSequen","PersonSequ","PersonType","InjurySeve",
+            "CaseNumber","MaxInjuryS",
+            "CrashSever","PersonType","InjurySeve",
             "Age","Sex","SeatPositi","SeatBeltSt"
 
         ],
@@ -96,7 +94,8 @@
             "Sex": "Sex",
             "SeatPositi": "Seat_Position",
             "SeatBeltSt": "Seat_Belt_Status"
-        }
+        },
+        "metadata": ["Case_Number", "Age", "Sex"]
     },
 
     {
@@ -105,18 +104,16 @@
         "description": "This dataset is a rich source of information for analyzing demographic trends, socioeconomic conditions, and land use patterns at a granular geographic level across different census tracts in the United States.",
         "date_columns": [],
         "relevant_columns": [
-            "STATEFP", "COUNTYFP", "TRACTCE", "GEOID", "GEOIDFQ", "NAME", 
             "NAMELSAD", "MTFCC", "FUNCSTAT", "ALAND", "AWATER", "INTPTLAT", 
             "INTPTLON", "STATE_NAME", "ST_ABBREV", "CNTY_NAME", 
             "REGION", "ACSTOTPOP", "DEMOGIDX_2", "DEMOGIDX_5", "PEOPCOLOR", 
             "PEOPCOLORPCT", "LOWINCOME", "LOWINCPCT", "UNEMPLOYED", "UNEMPPCT", 
             "DISABILITY", "DISABILITYPCT", "LESSHS", "LESSHSPCT", "LIFEEXPPCT", 
-            "Shape_Length", "Shape_Area", "pct_residential", "pct_industrial", 
-            "pct_retail", "pct_commercial", "Geography", 
+            "pct_residential", "pct_industrial", 
+            "pct_retail", "pct_commercial",
             "Native Hawaiian and Pacific Islander Percentage", 
             "White Percentage", "Black Percentage", 
-            "American Indian/Alaska Native Percentage", "Asian Percentage", 
-            "OBJECTID"
+            "American Indian/Alaska Native Percentage", "Asian Percentage"
         ],
         "column_name_map": {
             "STATEFP": "State_FIPS_Code",
@@ -125,7 +122,7 @@
             "GEOID": "Geographic_Identifier",
             "GEOIDFQ": "Fully_Qualified_Geographic_Identifier",
             "NAME": "Name",
-            "NAMELSAD": "Name_Legal_Statistical_Area_Description)",
+            "NAMELSAD": "Name_Legal_Statistical_Area_Description",
             "MTFCC": "MAF_TIGER_Feature_Class_Code",
             "FUNCSTAT": "Functional_Status",
             "ALAND": "Land_Area_Square_Meters",
@@ -163,7 +160,8 @@
             "American Indian/Alaska Native Percentage": "American_Indian_Alaska_Native_Percentage",
             "Asian Percentage": "Asian_Population_Percentage",
             "OBJECTID": "Objec_ID"
-        }
+        },
+        "metadata": ["State_Name", "County_Name", "Region"]
     }
 
 ]

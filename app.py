@@ -980,10 +980,11 @@ def get_county_data(counties_selected):
         return combined_df
     else:
         return pd.DataFrame()
+
 message = "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
             "**Example Prompts**\n\n" \
             "- What are the top 5 cities with the most crashes in 2021, showing counts?\n\n" \
-            "- What is the average number of injuires for crashes involving a commercial vehicle?\n\n" \
+            "- What is the average number of injuries for crashes involving a commercial vehicle?\n\n" \
             "- Describe a typical crash involving a pedestrian.\n\n" \
             "- Plot all bicycle-related crashes in Buffalo. \n\n"
 # Callback to render content based on selected tab
@@ -2721,6 +2722,6 @@ if __name__ == '__main__':
     globals()['census_polygons_by_county'] = census_polygons_by_county
     globals()['data_by_county'] = data_by_county
     print("Finished loading webapp.")
-    print("127.0.0.1:8050")
+    print("127.0.0.1:8080")
 
-    app.run(port="8050", debug=True)
+    app.run(port="8080", debug=False)

@@ -240,38 +240,41 @@ def visualize_data(sql_query: str):
     try:
         if 'Longitude' in sql_query and 'Latitude' in sql_query and 'Case_Number' in sql_query:
             data = execute_sql_query(sql_query)['data']
-            filtered_data = pd.DataFrame(data)
-            fig = px.scatter_map(
-                filtered_data,
-                lat="Latitude",
-                lon="Longitude",
-                color="Injuries",
-                size="Injuries",
-                size_max=10, # Max size of markers
-                zoom=10, # Initial zoom level
-                hover_name="Case_Number",
-                hover_data={
-                "Case_Number": True,
-                "Crash_Severity": True,
-                "Crash_Date": True,
-                "Crash_Time_Formatted": True,
-                "Crash_Type": True,
-                "City_Town_Name": True,
-                "On_Street_Name": True
-                },
-                map_style="open-street-map"
-            )
-            fig.update_layout(
-                margin={"r":0,"t":0,"l":0,"b":0},
-                mapbox_bounds={"west": filtered_data['Longitude'].min() - 0.01,
-                            "east": filtered_data['Longitude'].max() + 0.01,
-                            "south": filtered_data['Latitude'].min() - 0.01,
-                            "north": filtered_data['Latitude'].max() + 0.01},
-                # Alternatively, set initial center and zoom
-                # mapbox_center={"lat": filtered_df['latitude'].mean(), "lon": filtered_df['longitude'].mean()},
-                # mapbox_zoom=10
-            )
-            return {"status": "success", "data": data}, fig
+            if not data:
+                return {"status": "error", "message": "No data found for the given query"}, fig
+            else:
+                filtered_data = pd.DataFrame(data)
+                fig = px.scatter_map(
+                    filtered_data,
+                    lat="Latitude",
+                    lon="Longitude",
+                    color="Injuries",
+                    size="Injuries",
+                    size_max=10, # Max size of markers
+                    zoom=10, # Initial zoom level
+                    hover_name="Case_Number",
+                    hover_data={
+                    "Case_Number": True,
+                    "Crash_Severity": True,
+                    "Crash_Date": True,
+                    "Crash_Time_Formatted": True,
+                    "Crash_Type": True,
+                    "City_Town_Name": True,
+                    "On_Street_Name": True
+                    },
+                    map_style="open-street-map"
+                )
+                fig.update_layout(
+                    margin={"r":0,"t":0,"l":0,"b":0},
+                    mapbox_bounds={"west": filtered_data['Longitude'].min() - 0.01,
+                                "east": filtered_data['Longitude'].max() + 0.01,
+                                "south": filtered_data['Latitude'].min() - 0.01,
+                                "north": filtered_data['Latitude'].max() + 0.01},
+                    # Alternatively, set initial center and zoom
+                    # mapbox_center={"lat": filtered_df['latitude'].mean(), "lon": filtered_df['longitude'].mean()},
+                    # mapbox_zoom=10
+                )
+                return {"status": "success", "data": data}, fig
         else:
             return {"status": "error", "message": "Error: The SQL query did not provide appropriate data for mapping. Please ensure it selects latitude, longitude, and any relevant data points."}, fig
     except Exception as e:
@@ -292,13 +295,14 @@ Required Columns to Query:
 - Crash_Time_Formatted
 - Crash_Type
 - City_Town_Name
+- County_Name
 - On_Street_Name
 - Number_of_Injuries
 
 Example SQL queries:
-- Plot all crashes: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection;`
-- Visualize crashes in 2022 where people were injured: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection WHERE Case_Year = 2022 AND Crash_Severity = 'INJURY';`
-- Show me crashes involving pedestrians, order by date: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection WHERE Crash_Type = 'COLLISION WITH PEDESTRIAN' ORDER BY Crash_Date DESC;`
+- Plot all crashes: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, County_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection;`
+- Visualize crashes in 2022 where people were injured: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, County_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection WHERE Case_Year = 2022 AND Crash_Severity = 'INJURY';`
+- Show me crashes involving pedestrians, order by date: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, County_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection WHERE Crash_Type = 'COLLISION WITH PEDESTRIAN' ORDER BY Crash_Date DESC;`
 """
 
 def get_sql_tool_response(sql_query: str, user_query: str):
@@ -360,7 +364,7 @@ def get_visualization_tool_response(sql_query: str, user_query: str):
         I executed a SQL query and got the following data points:
         {json.dumps(tool_result['data'], indent=2)}
 
-        Please analyze the data points and draw helpful insights such as trends and hotspots in one paragraph.
+        Please analyze the data points and draw helpful insights such as trends and hotspots in one paragraph, keep it brief (< 300 tokens).
         If query resulted in an error, empty data or the answer is not in the information, state that.
         """
         final_answer_response = gemini_client.models.generate_content(

@@ -980,7 +980,12 @@ def get_county_data(counties_selected):
         return combined_df
     else:
         return pd.DataFrame()
-
+message = "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
+            "**Example Prompts**\n\n" \
+            "- What are the top 5 cities with the most crashes in 2021, showing counts?\n\n" \
+            "- What is the average number of injuires for crashes involving a commercial vehicle?\n\n" \
+            "- Describe a typical crash involving a pedestrian.\n\n" \
+            "- Plot all bicycle-related crashes in Buffalo. \n\n"
 # Callback to render content based on selected tab
 @app.callback(Output('tabs-content', 'children'), Input('tabs', 'value'))
 def render_content(tab):
@@ -1279,12 +1284,7 @@ def render_content(tab):
         ], className='desktop-layout')
     
     elif tab == 'tab-5': # Chatbot Tab
-        return chatbotlayout.load_chatbot_layout(
-            [{"sender": "bot", "message": "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
-            "**Example Prompts**\n\n" \
-            "- Can you summarize the crash data from 2020, focusing on common causes?\n\n" \
-            "- Show me the top 5 cities with the highest number of crashes in 2021, along with their count.\n\n" \
-            }])
+        return chatbotlayout.load_chatbot_layout([{"sender": "bot", "message": message, "map": None}])
 
 @app.callback(
     Output('chat-history-store', 'data'),
@@ -1342,7 +1342,7 @@ def handle_user_input(send_button_clicks, user_question, current_chat_data, curr
     #chat_history.append(msg)
 
     # Append temporary loading message
-    loading_msg = {"sender": "bot", "message": "Thinking..."}
+    loading_msg = {"sender": "bot", "message": "Thinking...", "map": None}
     current_chat_data.append(loading_msg)
 
     new_scroll_trigger = current_scroll_trigger + 1
@@ -1378,7 +1378,7 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
     # Remove loading message
     current_chat_data.pop()
 
-    msg = {"sender": "bot", "message": bot_response_message_content}
+    msg = {"sender": "bot", "message": bot_response_message_content.text, "map": bot_response_message_content.map}
     current_chat_data.append(msg)
     #chat_history.append(msg)
     new_scroll_trigger = current_scroll_trigger + 1
@@ -1396,8 +1396,14 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
 def update_chat_display(stored_chat_data):
     if stored_chat_data is None:
         raise dash.exceptions.PreventUpdate
-
-    rendered_history_elements = [chatbotlayout.render_message_bubble(msg['sender'], msg['message']) for msg in stored_chat_data]
+    
+    rendered_history_elements =[]
+    for msg in stored_chat_data:
+        if msg['sender'] == "user":
+            rendered_history_elements.append(chatbotlayout.render_user_message_bubble(msg['message']))
+        elif msg['sender'] == "bot":
+            rendered_history_elements.append(chatbotlayout.render_bot_message_bubble(msg['message'], msg['map']))
+    #rendered_history_elements = [chatbotlayout.render_message_bubble(msg['sender'], msg['message']) for msg in stored_chat_data]
     rendered_history_elements.append(html.Div(id='chat-end-marker'))
     return rendered_history_elements, stored_chat_data, 0
 

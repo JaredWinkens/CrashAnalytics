@@ -1214,6 +1214,26 @@ def render_content(tab):
                     style={'width': '100%', 'fontSize': '12px'}
                 ),
                 html.Div(
+                    html.Span(
+                        "i",
+                        title="VRU Crash rate per 1 million Vehicle Miles Traveled",
+                        style={
+                            'display': 'inline-block',
+                            'backgroundColor': '#ccc',
+                            'border': '1px solid #999',
+                            'borderRadius': '50%',
+                            'width': '16px',
+                            'height': '16px',
+                            'textAlign': 'center',
+                            'lineHeight': '16px',
+                            'cursor': 'help',
+                            'marginLeft': '5px',
+                            'fontSize': '12px'
+                        }
+                    ),
+                style={'textAlign': 'left'}
+            ),
+                html.Div(
                     id='prediction_bar',
                     style={
                         'width': '100%',
@@ -2036,12 +2056,22 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         gpkg_file = default_file
 
 
+    
     try:
         gdf = gpd.read_file(gpkg_file)
         if pred_col not in gdf.columns:
             raise KeyError(f"Missing '{pred_col}' in {gpkg_file}")
         gdf['Prediction'] = gdf[pred_col]
-
+            # LOGGING—immediately after load:
+        logger.info(f"Reading predictions from: {gpkg_file}")
+        logger.info(f" Total features in GPKG: {len(gdf)}")
+        if pred_col not in gdf.columns:
+            logger.error(f"Missing column '{pred_col}' in {gpkg_file}")
+        else:
+            valid_mask   = ~gdf[pred_col].isna()
+            n_valid      = int(valid_mask.sum())
+            n_missing    = int((~valid_mask).sum())
+            logger.info(f"  {n_valid} tracts HAVE a prediction, {n_missing} are still null")
         # normalize county names & filter
         # ——— filter by selected_counties, using whichever county field exists ———
         if selected_counties:
@@ -2605,8 +2635,8 @@ def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_pat
             return str(x)
 
     return html.Div([
-        html.Div(f"Original Prediction: {fmt(original_prediction)}"),
-        html.Div(f"Current Prediction:  {fmt(current_val)}"),
+        html.Div(f"Original VRU Crash Rate: {fmt(original_prediction)}"),
+        html.Div(f"Predicted VRU Crash Rate:  {fmt(current_val)}"),
     ])
 
 # ----------------------------

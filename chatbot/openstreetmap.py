@@ -322,7 +322,7 @@ def get_filtered_data(crashes_gdf, extracted_location):
                 print(f"\nCrashes found inside '{extracted_location}': {len(crashes_inside_gdf)}")
 
                 if not crashes_inside_gdf.empty:
-                    print(crashes_inside_gdf[['Case_Number', 'Y_Coord', 'X_Coord']])
+                    print(crashes_inside_gdf[['CaseNumber', 'Latitude', 'Longitude']])
                     return crashes_inside_gdf
                 else:
                     print("No crashes found within this boundary.")

@@ -32,6 +32,9 @@ for collection in chroma_collections:
 
 dataset_file = open(DATASET_CONFIG_PATH, "r")
 data_sources = json.load(dataset_file)
+data_final_df = pd.read_csv(data_sources[0]['path'], header=0, parse_dates=data_sources[0]['date_columns'], usecols=data_sources[0]['relevant_columns'])
+geometry = [Point(xy) for xy in zip(data_final_df['Longitude'], data_final_df['Latitude'])]
+crashes_gdf = gpd.GeoDataFrame(data_final_df, geometry=geometry, crs="EPSG:4326")
 
 def get_table_schema_dict(db_path: str, table_name: str, table_desc: str, include_samples: bool = True, sample_limit: int = 1) -> dict:
     conn = sqlite3.connect(db_path)
@@ -141,15 +144,9 @@ class BotResponse():
         self.img=img
 
 class RoadSafetyChatbot():
-    
-    crash_data: gpd.GeoDataFrame
-    other_data: list[pd.DataFrame]
 
-    def __init__(self, crash_data, other_data):
-        geometry = [Point(xy) for xy in zip(crash_data['X_Coord'], crash_data['Y_Coord'])]
-        crashes_gdf = gpd.GeoDataFrame(crash_data, geometry=geometry, crs="EPSG:4326")
-        self.crash_data = crashes_gdf
-        self.other_data = other_data
+    def __init__(self):
+        pass
 
     def get_agent_response(self, user_query: str) -> BotResponse:
         """
@@ -422,9 +419,9 @@ class RoadSafetyChatbot():
     def _visualize_data(self, location_list: list, filter_query: str):
         fig = None
         try:
-            filtered_gdf = self.crash_data
+            filtered_gdf = crashes_gdf
             if filter_query:
-                filtered_gdf = self.crash_data.query(filter_query)
+                filtered_gdf = crashes_gdf.query(filter_query)
             if filtered_gdf.empty:
                 return {"status": "error", "message": "No data found for the given query"}
             else:
@@ -439,18 +436,18 @@ class RoadSafetyChatbot():
                     filtered_data,
                     lat=filtered_data.geometry.y,
                     lon=filtered_data.geometry.x,
-                    center={"lat": filtered_data['Y_Coord'].mean(), "lon": filtered_data['X_Coord'].mean()},
+                    center={"lat": filtered_data['Latitude'].mean(), "lon": filtered_data['Longitude'].mean()},
                     zoom=10, # Initial zoom level
                     opacity=0.5,
                     radius=3,
-                    hover_name="Case_Number",
+                    hover_name="CaseNumber",
                     hover_data={
-                        "Case_Number": True,
-                        "Crash_Date": True,
-                        "Crash_Time": True,
-                        "WeatherCon": True,
-                        "LightCon": True,
-                        "RoadSurfac": True
+                        "CaseNumber": True,
+                        "CrashDate": True,
+                        "CrashTimeFormatted": True,
+                        "WeatherCondition": True,
+                        "LightCondition": True,
+                        "RoadSurfaceCondition": True
                     },
                     map_style="open-street-map"
                 )

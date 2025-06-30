@@ -177,7 +177,7 @@ def make_field_row(var_id, label, step):
 DEFAULT_PRED_FILES = {
     'AI.py':  './AI/Large_DataSet2.25_with_predictions.gpkg',
     'AI2.py': './AI/Rename_DataSet2.25_with_gwr_predictions.gpkg',
-    'mgwr_predict.py': './MGWR/merged_with_mgwr_predictions.gpkg'
+    'mgwr_predict.py': './MGWR/merged_with_all_tracts.gpkg'
 }
 
 # ----------------------------
@@ -469,6 +469,7 @@ def load_census_data(file_path):
     census_polygons_by_county = {}
     try:
         gdf = gpd.read_file(file_path)
+        
         for idx, row in gdf.iterrows():
             raw = row.get('CNTY_NAME')
             if pd.isna(raw):
@@ -2059,6 +2060,7 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
     
     try:
         gdf = gpd.read_file(gpkg_file)
+        logger.debug("Columns in GPKG: %s", gdf.columns.tolist())
         if pred_col not in gdf.columns:
             raise KeyError(f"Missing '{pred_col}' in {gpkg_file}")
         gdf['Prediction'] = gdf[pred_col]
@@ -2223,20 +2225,29 @@ def update_modal_values(*all_args):
     def clean(v):
         return None if pd.isna(v) else round(v, 2)
 
-    # --- Case 1: new tract selected → load all fields from the GPKG
+    # --- Case 1: new tract selected → load every field from the editable GPKG
     if trig.startswith("selected_census_tract"):
         if not (selected_tract and gpkg_path and os.path.exists(gpkg_path)):
             raise PreventUpdate
+
         gdf = gpd.read_file(gpkg_path)
-        rename_map = {
-            v.replace('(','.').replace(')','.'): v
-            for v in FIELD_IDS
-        }
+        # restore our input‐field names (with parentheses) from the dot‐named GPKG columns
+        rename_map = { v.replace('(','.').replace(')','.') : v for v in FIELD_IDS }
         gdf = gdf.rename(columns=rename_map)
+
+        # pull out just the clicked tract
         row = gdf[gdf["id"].astype(str) == str(selected_tract)]
         if row.empty:
             raise PreventUpdate
         row = row.iloc[0]
+
+        if pd.isna(row.get("MGWR_Prediction")):
+            return [None] * len(FIELD_IDS)
+
+        # otherwise load existing values and round them
+        def clean(v):
+            return None if pd.isna(v) else round(v, 2)
+
         return [ clean(row.get(var)) for var in FIELD_IDS ]
 
     # --- Case 2: plus/minus clicked → find exactly which var to adjust

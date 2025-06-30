@@ -3,7 +3,9 @@
 predict_mgwr.py
 
 A utility to load MGWR models and generate predictions into a GeoPackage,
-using 'GEOIDFQ' as the tract identifier.
+using 'GEOIDFQ' as the tract identifier, then stitch those predictions onto the full set of tracts so that
+missing tracts remain in the output with NaN for MGWR_Prediction, carry over all original variables, and include an 'id' column and 'Region' for app use.
+Handles duplicate suffixes by preferring imported values (_y) over geometry defaults (_x).
 """
 import sys
 import os
@@ -19,6 +21,8 @@ logger = logging.getLogger(__name__)
 # ——— Paths ———
 BASE_DIR = os.path.dirname(__file__)
 MODEL_PKL = os.path.join(BASE_DIR, 'MGWR', 'mgwr_models.pkl')
+FULL_TRACTS_GPKG = os.path.join(BASE_DIR, 'data', 'TractData.gpkg')
+
 
 def load_models(path):
     """Load the dict of MGWRResults objects."""
@@ -31,70 +35,83 @@ def load_models(path):
         logger.error(f"Error loading models: {e}")
         sys.exit(1)
 
+
 def predict(input_gpkg, output_gpkg, models):
-    """Read input GPKG, generate MGWR_Prediction, and write out new GPKG."""
+    # 1. Read prediction input
     try:
-        gdf = gpd.read_file(input_gpkg)
-        logger.debug(f"Loaded {len(gdf)} features from {input_gpkg}")
+        gdf_in = gpd.read_file(input_gpkg)
+        logger.debug(f"Loaded {len(gdf_in)} features from {input_gpkg}")
     except Exception as e:
         logger.error(f"Error reading '{input_gpkg}': {e}")
         sys.exit(1)
 
-    # ───── Use GEOIDFQ as the primary ID ─────
-    if 'GEOIDFQ' in gdf.columns:
-        gdf = gdf.copy()
-        gdf['id'] = gdf['GEOIDFQ'].astype(str)
-        logger.debug("Using 'GEOIDFQ' column for id")
-    elif 'id' not in gdf.columns:
-        gdf = gdf.copy()
-        gdf['id'] = gdf.index.astype(str)
-        logger.debug("No 'GEOIDFQ' or 'id' column found; using index as id")
+    gdf_in = gdf_in.copy()
+    # ensure id
+    gdf_in['id'] = gdf_in.get('GEOIDFQ', gdf_in.index.astype(str)).astype(str)
 
-    # prepare an array of NaNs for predictions
-    preds = np.full(len(gdf), np.nan, dtype=float)
-
-    # ───── Loop over each region and assign predictions ─────
+    # build predictions
+    preds = np.full(len(gdf_in), np.nan, dtype=float)
     for region, result in models.items():
-        mask = (gdf['Region'] == region)
+        mask = gdf_in.get('Region') == region
         idx = np.nonzero(mask)[0]
         if idx.size == 0:
             logger.warning(f"No features for region '{region}'")
             continue
-
         region_preds = result.predy.flatten()
-        if len(region_preds) != idx.size:
-            logger.warning(
-                f"Region '{region}': {len(region_preds)} preds but {idx.size} features"
-            )
-            n = min(len(region_preds), idx.size)
-            preds[idx[:n]] = region_preds[:n]
-        else:
-            preds[idx] = region_preds
-    #clamps pred to 0
-    preds[preds < 0] = 0.0
-    # attach predictions, converting NaN→None
-    gdf['MGWR_Prediction'] = [None if np.isnan(x) else float(x) for x in preds]
+        n = min(len(region_preds), idx.size)
+        preds[idx[:n]] = region_preds[:n]
+    preds = np.clip(preds, 0, None)
+    gdf_in['MGWR_Prediction'] = [None if np.isnan(x) else float(x) for x in preds]
+
+    # 2. Read full tracts
     try:
-        gdf.to_file(output_gpkg, driver='GPKG')
-        logger.debug(f"Wrote MGWR predictions to {output_gpkg}")
+        gdf_all = gpd.read_file(FULL_TRACTS_GPKG)
+        logger.debug(f"Loaded {len(gdf_all)} full tracts from {FULL_TRACTS_GPKG}")
+    except Exception as e:
+        logger.error(f"Error reading full tract layer: {e}")
+        sys.exit(1)
+
+    # 3. Merge on GEOIDFQ
+    cols_pred = [c for c in gdf_in.columns if c != 'geometry']
+    gdf_pred = gdf_in[cols_pred]
+    gdf_full = gdf_all.merge(
+        gdf_pred,
+        on='GEOIDFQ', how='left',
+        suffixes=('_x','_y')
+    )
+    # ensure id
+    gdf_full['id'] = gdf_full['GEOIDFQ'].astype(str)
+
+    # 4. Resolve duplicates: drop *_x, rename *_y to base name
+    drop_cols = [c for c in gdf_full.columns if c.endswith('_x')]
+    rename_map = {c: c[:-2] for c in gdf_full.columns if c.endswith('_y')}
+    if drop_cols:
+        logger.debug(f"Dropping columns: {drop_cols}")
+        gdf_full = gdf_full.drop(columns=drop_cols)
+    if rename_map:
+        logger.debug(f"Renaming columns: {rename_map}")
+        gdf_full = gdf_full.rename(columns=rename_map)
+        # 4.5. For any tracts still missing a Region, assign default = 'B'
+    if 'Region' in gdf_full.columns:
+        gdf_full['Region'] = gdf_full['Region'].fillna('B')
+    else:
+        gdf_full['Region'] = 'B'
+
+    # 5. Write output
+    try:
+        gdf_full.to_file(output_gpkg, driver='GPKG')
+        logger.debug(f"Wrote merged GPKG to {output_gpkg}")
     except Exception as e:
         logger.error(f"Error writing '{output_gpkg}': {e}")
         sys.exit(1)
 
+
 def main():
-    # CLI args: [1]=input, [2]=output (optional)
-    input_gpkg = sys.argv[1] if len(sys.argv) > 1 else './MGWR/merged.gpkg'
-    if len(sys.argv) > 2:
-        output_gpkg = sys.argv[2]
-    else:
-        base, ext = os.path.splitext(input_gpkg)
-        output_gpkg = f"{base}_with_mgwr_predictions{ext}"
-
-    logger.debug(f"Input: {input_gpkg}")
-    logger.debug(f"Output: {output_gpkg}")
-
+    inp = sys.argv[1] if len(sys.argv)>1 else './MGWR/merged.gpkg'
+    out = sys.argv[2] if len(sys.argv)>2 else inp.replace('.gpkg','_with_all_tracts.gpkg')
+    logger.debug(f"Input: {inp}, Output: {out}")
     models = load_models(MODEL_PKL)
-    predict(input_gpkg, output_gpkg, models)
+    predict(inp, out, models)
 
-if __name__ == '__main__':
+if __name__=='__main__':
     main()

@@ -18,10 +18,16 @@ def load_chatbot_layout(initial_chat_history):
         # Input area FIXED at the bottom of the viewport
         html.Div(className='input-bar-fixed-wrapper', children=[
             html.Div(className='input-field-wrapper', children=[
-                dcc.Textarea(
+                # dcc.Textarea(
+                #     id='user-input',
+                #     placeholder='Your message...',
+                #     rows=1,
+                # ),
+                dcc.Input(
                     id='user-input',
-                    placeholder='Your message...',
-                    rows=1,
+                    placeholder='Your message...', 
+                    type='text', 
+                    value=''
                 ),
                 html.Button(
                     html.I(className="fas fa-paper-plane"),
@@ -29,15 +35,14 @@ def load_chatbot_layout(initial_chat_history):
                     n_clicks=0,
                     title ="Send message"
                 ),
-                html.Button(
+            ]),
+            html.Button(
                     html.I(className="fas fa-trash"), # You can choose a different icon
                     id='clear-button',
                     n_clicks=0,
                     title ="Clear chat history",
-                    className='clear-button' # Add a class for styling
-                    
+                    className='clear-button' # Add a class for styling 
                 )
-            ])
         ]),
 
         # Hidden Div to store the chat history data

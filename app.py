@@ -17,8 +17,7 @@ import math
 import json
 import subprocess
 import chatbot.chatbot_layout as chatbotlayout
-import chatbot.chatbot as chatbotv1
-import chatbot.chatbot_v2 as chatbotv2
+import chatbot.chatbot_v3 as chatbotv3
 import analyzer.analyzer as analyzer
 
 # all editable fields for prediction tab
@@ -986,7 +985,7 @@ message = "Hello! I am an interactive safety chatbot designed to provide you wit
             "- What are the top 5 cities with the most crashes in 2021, showing counts?\n\n" \
             "- What is the average number of injuries for crashes involving a commercial vehicle?\n\n" \
             "- Describe a typical crash involving a pedestrian.\n\n" \
-            "- Plot all bicycle-related crashes in Buffalo. \n\n"
+            "- Plot all pedestrian-related crashes in Buffalo. \n\n"
 # Callback to render content based on selected tab
 @app.callback(Output('tabs-content', 'children'), Input('tabs', 'value'))
 def render_content(tab):
@@ -1291,14 +1290,16 @@ def render_content(tab):
     Output('chat-history-store', 'data'),
     Output('chat-history-container', 'children'),
     Input('clear-button', 'n_clicks'),
+    State('chat-history-store', 'data'),
+    State('chat-history-container', 'children'),
     prevent_initial_call=True
 )
-def clear_chat_history(n_clicks):
+def clear_chat_history(n_clicks, current_chat_data, curent_chat_container):
     if n_clicks and n_clicks > 0:
         # Reset the chat history to an empty list
         # while len(chat_history) > 1:
         #     chat_history.pop()
-        return [], [] # Empty list for store, empty list for children
+        return current_chat_data[0:1], curent_chat_container[0:1] # Empty list for store, empty list for children
     return dash.no_update, dash.no_update # If button not clicked, do nothing
 
 @app.callback(
@@ -1327,13 +1328,14 @@ def generate_insights(n_clicks, fig_snapshot):
     Output('chat-history-store', 'data', allow_duplicate=True),
     Output('scroll-trigger', 'data', allow_duplicate=True),
     Output('user-question-for-bot', 'data'),
-    Input('send-button', 'n_clicks'),
+    [Input('send-button', 'n_clicks'),
+     Input('user-input', 'n_submit')],
     State('user-input', 'value'),
     State('chat-history-store', 'data'),
     State('scroll-trigger', 'data'),
     prevent_initial_call=True
 )
-def handle_user_input(send_button_clicks, user_question, current_chat_data, current_scroll_trigger):
+def handle_user_input(send_button_clicks, n_submits, user_question, current_chat_data, current_scroll_trigger):
     if not user_question or user_question.strip() == "":
         raise dash.exceptions.PreventUpdate
 
@@ -1374,7 +1376,7 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
     user_question = user_question_data["question"]
 
     #bot_response_message_content = chatbotv1.generate_response(user_question)
-    bot_response_message_content = chatbotv2.get_agent_response(user_question)
+    bot_response_message_content = chatbot.get_agent_response(user_question)
     
     # Remove loading message
     current_chat_data.pop()
@@ -2721,7 +2723,11 @@ if __name__ == '__main__':
     globals()['county_coordinates'] = county_coordinates
     globals()['census_polygons_by_county'] = census_polygons_by_county
     globals()['data_by_county'] = data_by_county
-    print("Finished loading webapp.")
-    print("127.0.0.1:8080")
 
-    app.run(port="8080", debug=False)
+    # Create chatbot instance
+    chatbot = chatbotv3.RoadSafetyChatbot(data_final_df, None)
+
+    print("Finished loading webapp.")
+    print("127.0.0.1:8050")
+
+    app.run(port="8050", debug=True)

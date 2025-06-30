@@ -114,15 +114,16 @@
     left: 0; /* Align to left edge for full width */
     transform: translateX(0); /* Remove transform for mobile */
     max-width: 100%; /* Ensure it takes full width */
-    width: 100%;
+    width: 90%;
     display: flex;
     justify-content: center;
     box-sizing: border-box;
     z-index: 1000;
     box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.08);
+    align-items: center;
 }
 
-.input-field-wrapper button.clear-button {
+.clear-button {
     background-color: #f44336;
     color: white;
     border: none;
@@ -134,7 +135,7 @@
     font-size: 1.1em; /* Adjust font size */
 }
 
-.input-field-wrapper button.clear-button:hover {
+.clear-button:hover {
     background-color: #d32f2f;
 }
 

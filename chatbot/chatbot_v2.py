@@ -1,3 +1,4 @@
+import random
 from google import genai
 from google.genai import types
 import sqlite3
@@ -7,6 +8,11 @@ import concurrent.futures
 from pydantic import BaseModel
 import pandas as pd
 import plotly.express as px
+import plotly.io as pio
+from shapely import Point
+import chatbot.openstreetmap
+import geopandas as gpd
+import time
 
 # load config settings
 config_file = open("config.json", "r")
@@ -16,14 +22,24 @@ CHROMADB_PATH = config['paths']['chromadb_path']
 DB_FILE = config['paths']['db_file']
 DATASET_CONFIG_PATH = config['paths']['dataset_config_path'] 
 EMBEDDING_MODEL = config['models']['004'] 
-GEN_MODEL = config['models']['2.0-flash']
+GEN_MODEL = config['models']['2.5-flash']
 
 gemini_client = genai.Client(api_key=API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMADB_PATH)
 chroma_collections = chroma_client.list_collections()
+
+#-----------------------------
+# LOAD DATA
+#-----------------------------
 collections_dict = {}
 for collection in chroma_collections:
     collections_dict[collection.name] = collection
+
+dataset_file = open(DATASET_CONFIG_PATH, "r")
+data_sources = json.load(dataset_file)
+data_final_df = pd.read_csv(data_sources[0]['path'], header=0, parse_dates=data_sources[0]['date_columns'], usecols=data_sources[0]['relevant_columns'], nrows=1000)
+geometry = [Point(xy) for xy in zip(data_final_df['Longitude'], data_final_df['Latitude'])]
+crashes_gdf = gpd.GeoDataFrame(data_final_df, geometry=geometry, crs="EPSG:4326")
 
 def call_with_timeout(func, timeout, *args, **kwargs):
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -90,8 +106,6 @@ def format_schema(schema_dict: dict) -> str:
         lines.append(f'- {col["name"]} ({col["type"]}){sample}')
     return "\n".join(lines)
 
-file = open(DATASET_CONFIG_PATH, "r")
-data_sources = json.load(file)
 table_schemas = []
 for source in data_sources:
     schema = get_table_schema_dict(DB_FILE, source['name'], source['description'], True, 3)
@@ -235,74 +249,56 @@ Example usage:
 - "What generally causes crashes on highways?"
 """
 
-def visualize_data(sql_query: str):
+def visualize_data(location_list: list, filter_query: str):
     fig = None
     try:
-        if 'Longitude' in sql_query and 'Latitude' in sql_query and 'Case_Number' in sql_query:
-            data = execute_sql_query(sql_query)['data']
-            if not data:
-                return {"status": "error", "message": "No data found for the given query"}, fig
-            else:
-                filtered_data = pd.DataFrame(data)
-                fig = px.scatter_map(
-                    filtered_data,
-                    lat="Latitude",
-                    lon="Longitude",
-                    color="Injuries",
-                    size="Injuries",
-                    size_max=10, # Max size of markers
-                    zoom=10, # Initial zoom level
-                    hover_name="Case_Number",
-                    hover_data={
-                    "Case_Number": True,
-                    "Crash_Severity": True,
-                    "Crash_Date": True,
-                    "Crash_Time_Formatted": True,
-                    "Crash_Type": True,
-                    "City_Town_Name": True,
-                    "On_Street_Name": True
-                    },
-                    map_style="open-street-map"
-                )
-                fig.update_layout(
-                    margin={"r":0,"t":0,"l":0,"b":0},
-                    mapbox_bounds={"west": filtered_data['Longitude'].min() - 0.01,
-                                "east": filtered_data['Longitude'].max() + 0.01,
-                                "south": filtered_data['Latitude'].min() - 0.01,
-                                "north": filtered_data['Latitude'].max() + 0.01},
-                    # Alternatively, set initial center and zoom
-                    # mapbox_center={"lat": filtered_df['latitude'].mean(), "lon": filtered_df['longitude'].mean()},
-                    # mapbox_zoom=10
-                )
-                return {"status": "success", "data": data}, fig
+        filtered_gdf = crashes_gdf
+        if filter_query:
+            filtered_gdf = crashes_gdf.query(filter_query)
+        if filtered_gdf.empty:
+            return {"status": "error", "message": "No data found for the given query"}
         else:
-            return {"status": "error", "message": "Error: The SQL query did not provide appropriate data for mapping. Please ensure it selects latitude, longitude, and any relevant data points."}, fig
+            if location_list:
+                dataframes = []
+                for location in location_list:
+                    dataframes.append(chatbot.openstreetmap.get_filtered_data(filtered_gdf, location))
+                filtered_data = pd.concat(dataframes, ignore_index=True)
+            else:
+                return {"status": "error", "message": "No location(s) specified, cannot create map"}
+            fig = px.density_map(
+                filtered_data,
+                lat=filtered_data.geometry.y,
+                lon=filtered_data.geometry.x,
+                center={"lat": filtered_data['Latitude'].mean(), "lon": filtered_data['Longitude'].mean()},
+                zoom=10, # Initial zoom level
+                opacity=0.5,
+                radius=3,
+                hover_name="CaseNumber",
+                hover_data={
+                    "CaseNumber": True,
+                    "CrashDate": True,
+                    "CrashTimeFormatted": True,
+                    "WeatherCondition": True,
+                    "LightCondition": True,
+                    "RoadSurfaceCondition": True
+                },
+                map_style="open-street-map"
+            )
+            fig.update_layout()
+            
+            return {"status": "success", "data": fig}
     except Exception as e:
-        return {"status": "error", "message": f"An error occurred while generating the map: {str(e)}"}, fig
+        return {"status": "error", "message": f"An error occurred while generating the map: {str(e)}"}
 
 VISUALIZATION_TOOL_DESCRIPTION = """
 Tool Name: `visualize_data`
-Description: This tool is designed to visualize roadway safety data on an interactive geographical map using Plotly. It executes a provided SQL query, retrieves relevant data (specifically latitude and longitude, along with any other desired numerical or categorical data for visualization), and then renders it on a map.
+Description: This tool is designed to visualize roadway safety data on an interactive geographical map. It extracts locations and filter variables from a natural language query that can be used to retrieve data points that can be rendered on a map.
 Usage: Use this tool when the user explicitly requests a map, geographical visualization, or a spatial representation of data related to roadway safety. It is ideal for showing incident locations, accident hotspots, or the distribution of various safety metrics across an area.
-Input: A SQL query as a string. The query must always select at least the following columns
-
-Required Columns to Query:
-- Case_Number
-- X_Coordinate
-- Y_Coordinate
-- Crash_Severity
-- Crash_Date
-- Crash_Time_Formatted
-- Crash_Type
-- City_Town_Name
-- County_Name
-- On_Street_Name
-- Number_of_Injuries
-
-Example SQL queries:
-- Plot all crashes: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, County_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection;`
-- Visualize crashes in 2022 where people were injured: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, County_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection WHERE Case_Year = 2022 AND Crash_Severity = 'INJURY';`
-- Show me crashes involving pedestrians, order by date: `SELECT Case_Number, X_Coordinate AS Longitude, Y_Coordinate AS Latitude, Crash_Severity, Crash_Date, Crash_Time_Formatted, Crash_Type, City_Town_Name, County_Name, On_Street_Name, Number_of_Injuries AS Injuries FROM Intersection WHERE Crash_Type = 'COLLISION WITH PEDESTRIAN' ORDER BY Crash_Date DESC;`
+Input: A dictionary with a key "locations" which is a list of locations and a key "filter_query" which is a string representing a filter query for a Pandas DataFrame.
+Example Usage:
+- Plot all crashes in Buffalo: `{'locations': ["Buffalo"], 'filter_query': ""}`
+- Visualize crashes in 2022 where people were injured: `{'locations': [], 'filter_query': "CaseYear == 2022 and CrashSeverity == 'INJURY'"}`
+- Show me crashes involving pedestrians: `{'locations': [], 'filter_query': "CrashType == 'COLLISION WITH PEDESTRIAN'"}`
 """
 
 def get_sql_tool_response(sql_query: str, user_query: str):
@@ -353,33 +349,38 @@ def get_rag_tool_response(rag_query: str, user_query: str):
 
     return BotResponse(text=final_answer_response)
 
-def get_visualization_tool_response(sql_query: str, user_query: str):
-    print(f"Executing SQL Query for: {sql_query}")
-    tool_result, fig = call_with_timeout(visualize_data, 30, sql_query)
+def get_visualization_tool_response(location_list: list, filter_query: str, user_query: str):
+    print(f"Executing Query: {location_list}, {filter_query}")
+    #tool_result, fig = call_with_timeout(visualize_data, 30, location_list, filters_dict, user_query)
+    tool_result = visualize_data(location_list, filter_query)
+    image_bytes = pio.to_image(fig=tool_result['data'], format='png', scale=1, width=1920, height=1080)
     
     if tool_result['status'] == "success": 
-        print(f"VIS Tool Result: {tool_result['data']}")
+        #print(f"VIS Tool Result: {tool_result['data']}")
         final_answer_prompt = f"""
         The user asked: "{user_query}"
-        I executed a SQL query and got the following data points:
-        {json.dumps(tool_result['data'], indent=2)}
-
-        Please analyze the data points and draw helpful insights such as trends and hotspots in one paragraph, keep it brief (< 300 tokens).
+        I plotted the data onto a map.
+        Please analyze the map and draw helpful insights such as trends and hotspots in one paragraph, keep it brief (< 300 tokens).
         If query resulted in an error, empty data or the answer is not in the information, state that.
         """
         final_answer_response = gemini_client.models.generate_content(
                                             model=GEN_MODEL,
-                                            contents=final_answer_prompt,
+                                            contents=[final_answer_prompt,
+                                                      types.Part.from_bytes(
+                                                            data=image_bytes,
+                                                            mime_type='image/png'
+                                                        ),
+                                                    ],
                                         ).text
     else: #tool_result['status'] == "error"
         print(f"VIS Tool Result: {tool_result['message']}")
         final_answer_response = tool_result['message']
 
-    return BotResponse(text=final_answer_response, map=fig)
+    return BotResponse(text=final_answer_response, map=tool_result['data'])
 
 class Tool(BaseModel):
     function_name: str
-    function_arguments: list[str]
+    function_arguments: list
 
 class BotResponse():
     def __init__(self, text="", map=None, img=None):
@@ -412,7 +413,7 @@ def get_agent_response(user_query: str) -> BotResponse:
     Output Format:
     - If using the `execute_sql_query` tool: `function_name` = execute_sql_query, `function_arguments` = ['YOUR_SQL_QUERY_HERE;']
     - If using the `retrieve_relevant_chunks` tool: `function_name` = retrieve_relevant_chunks, `function_arguments` = ['YOUR_NATURAL_LANGUAGE_QUERY_HERE']
-    - If using the `visualize_data` tool: `function_name` = visualize_data, `function_arguments` = ['YOUR_SQL_QUERY_HERE;']
+    - If using the `visualize_data` tool: `function_name` = visualize_data, `function_arguments` = [YOUR_DICT_HERE]
     - If within scope and no tool needed: `function_name` = no_tool_needed, `function_arguments` = ['YOUR_RESPONSE_HERE']
     - If outside the scope of your purpose: `function_name` = invalid_query, `function_arguments` = ['YOUR_RESPONSE_HERE']
 
@@ -441,8 +442,10 @@ def get_agent_response(user_query: str) -> BotResponse:
                 tool_responses.append({"Tool_Name": tool.function_name, "Result": get_rag_tool_response(rag_query, user_query)})
             
             elif tool.function_name == 'visualize_data':
-                sql_query = tool.function_arguments[0].strip("'\"")
-                tool_responses.append({"Tool_Name": tool.function_name, "Result": get_visualization_tool_response(sql_query, user_query)})
+                response_dict = tool.function_arguments[0]
+                location_list = response_dict['locations']
+                filter_query = response_dict['filter_query']
+                tool_responses.append({"Tool_Name": tool.function_name, "Result": get_visualization_tool_response(location_list, filter_query, user_query)})
             
             elif tool.function_name == 'no_tool_needed': 
                 tool_responses.append({"Tool_Name": tool.function_name, "Result": BotResponse(text=tool.function_arguments[0].strip("'\""))})
@@ -481,7 +484,7 @@ if __name__ == "__main__":
         if user_question.lower() == 'exit':
             break
 
-        answer = get_agent_response(user_question)
+        answer = get_agent_response(user_question).text
         print("\n--- Gemini's Final Answer ---")
         print(answer)
         print("----------------------------")

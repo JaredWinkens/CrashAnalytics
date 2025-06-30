@@ -11,6 +11,7 @@
     "models": {
         "1.5-flash": "gemini-1.5-flash",
         "2.0-flash": "gemini-2.0-flash",
+        "2.5-flash": "gemini-2.5-flash",
         "004": "models/text-embedding-004",
         "001": "models/embedding-001",
         "exp-03-07": "gemini-embedding-exp-03-07",

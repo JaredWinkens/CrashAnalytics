@@ -1,6 +1,8 @@
+import base64
 import dash
-from dash import dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL
+from dash import Dash, DiskcacheManager, dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL
 import datetime
+import diskcache
 import plotly.express as px
 import plotly.io as pio
 import plotly.graph_objects as go  
@@ -17,9 +19,27 @@ import math
 import json
 import subprocess
 import chatbot.chatbot_layout as chatbotlayout
-import chatbot.chatbot_v3 as chatbotv3
-import analyzer.analyzer as analyzer
+#import chatbot.chatbot_v3 as chatbotv3
+import analyzer.map_analyzer as map_analyzer
+import concurrent.futures
+import analyzer.streetview_analyzer as streetview
+#from chatbot.mcp_client import get_gemini_response_from_mcp
+import chatbot.chatbot_v4 as chatbotv4
+import asyncio
 
+def call_with_timeout(func, timeout, *args, **kwargs):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(func, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            print(f"Function '{func.__name__}' timed out after {timeout} seconds.")
+            return f"Function '{func.__name__}' timed out after {timeout} seconds."
+        except Exception as e:
+            print(f"Function '{func.__name__}' raised an exception: {e}")
+            return f"Function '{func.__name__}' raised an exception: {e}"
+# disk_cache = diskcache.Cache("./cache")
+# background_callback_manager = DiskcacheManager(disk_cache)       
 # all editable fields for prediction tab
 ALL_FIELDS = [
     ("DEMOGIDX_5",     "Demographic Index (5-yr ACS)",        0.01),
@@ -1115,32 +1135,29 @@ def render_content(tab):
                     },
                     config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
                 ),
+                # Hidden button for closing the popup (must exist in initial layout)
+                html.Button(html.I(className="fa-window-close"),id="close-popup-button", n_clicks=0, style={'display': 'none'}),
+
+                dcc.Loading(
+                    html.Div(id='image-popup', style={
+                        'position': 'fixed',
+                        'left': '50%',
+                        'top': '50%',
+                        'transform': 'translate(-50%, -50%)',
+                        'zIndex': '1000',
+                        'backgroundColor': 'white',
+                        'border': '1px solid black',
+                        'padding': '10px',
+                        'display': 'none', # Start hidden
+                        'maxWidth': '320px',
+                        'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
+                    }),
+                ),
                 html.Button(
                     id='insight-button',n_clicks=0, 
                     children=[
-                        html.I(className="fas fa-lightbulb"),
-                        html.Span(" Get Insights")  # Button text
+                        html.I(className="fas fa-lightbulb", title="Get AI Powered Insights"),
                     ]),
-                # Right-side: Display AI generated insights
-                html.Div(
-                    className= 'insights-wrapper',
-                    children=[
-                        html.Div(
-                            id='insight-display-container',
-                            children=[
-                                dcc.Loading(
-                                    id="loading-output-text",
-                                    type="dot",
-                                    children=[
-                                        dcc.Markdown(
-                                        id='insight-content',
-                                        children="""
-                                        """,
-                                    )]
-                                ),
-                            ],
-                        className='insight-display-wrapper')])
-                
         ], className='responsive-graph'),
     
     ], className='desktop-layout')
@@ -1303,24 +1320,105 @@ def clear_chat_history(n_clicks, current_chat_data, curent_chat_container):
     return dash.no_update, dash.no_update # If button not clicked, do nothing
 
 @app.callback(
-        Output('insight-content', 'children'),
-        Input('insight-button', 'n_clicks'),
-        State('heatmap_graph', 'figure'),
-        running = [
-            (Output('insight-content', 'children'), "Generating Insights...", ""),
-        ]
+    Output('image-popup', 'children'),
+    Output('image-popup', 'style'),
+    Output('heatmap_graph', 'clickData'),
+    Input('heatmap_graph', 'clickData'),
+    Input('insight-button', 'n_clicks'), 
+    Input('close-popup-button', 'n_clicks'),
+    State('heatmap_graph', 'figure'),      
+    prevent_initial_call=True
 )
-def generate_insights(n_clicks, fig_snapshot):
-    fig_width = 1280
-    fig_height = 720
-    if n_clicks and n_clicks > 0:
+def manage_popup_display(clickData, insight_button_n_clicks, close_button_n_clicks, fig_snapshot):
+    triggered_id = ctx.triggered_id
 
+    # If the close button was clicked
+    if triggered_id == 'close-popup-button' and close_button_n_clicks is not None:
+        print("Close button clicked, hiding popup.")
+        return None, {'display': 'none'}, None
+
+    if triggered_id == 'insight-button' and insight_button_n_clicks and insight_button_n_clicks > 0:
+        fig_width = 1280
+        fig_height = 720
         #pio.write_image(fig_snapshot, "density_map.png", scale=1, width=fig_width, height=fig_height)
         image_bytes = pio.to_image(fig=fig_snapshot, format='png', scale=1, width=fig_width, height=fig_height)
-        insghts = analyzer.get_insights(image_bytes=image_bytes)
+        encoded_image = base64.b64encode(image_bytes).decode('utf-8')
+        data_url = f"data:image/png;base64,{encoded_image}"
+        insights = call_with_timeout(map_analyzer.generate_response, 30, image_bytes)
+        popup_style = {
+            'display': 'block',
+            'position': 'fixed',
+            'left': '50%',
+            'top': '50%',
+            'transform': 'translate(-50%, -50%)',
+            'zIndex': '1000',
+            'backgroundColor': 'white',
+            'border': '1px solid black',
+            'padding': '10px',
+            'maxWidth': '1280px',
+            'maxHeight': '720px',
+            'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
+        }
+        image_element = html.Div([
+            html.H1("Image Insights"),
+            html.Button(html.I(className="fa fa-window-close"), id="close-popup-button", n_clicks=0),
+            dcc.Markdown(insights, style={'maxWidth': '640px'}),
+            html.Img(src=data_url, style={'maxWidth': '640px', 'maxHeight': '480px'})
+        ])
+        return image_element, popup_style, None
+    
+    if triggered_id == 'heatmap_graph':
+        print(f"Click data {clickData}.")    
+        lon = clickData['points'][0]['lon']
+        lat = clickData['points'][0]['lat']
+        print(f"Lon: {lon}, Lat: {lat}")
+        location_name = f"Lon: {lon:.4f}, Lat: {lat:.4f}"
+        if 'customdata' in clickData['points'][0]:
+            crash_info = clickData['points'][0]['customdata']
+            crash_data_dict = {
+                'Latitude': lat,
+                'Longitude': lon,
+                'CaseNumber': crash_info[0],
+                'CrashDate': crash_info[1],
+                'CrashTime': crash_info[2],
+                'WeatherCondition': crash_info[3],
+                'LightCondition': crash_info[4],
+                'RoadSurfaceCondition': crash_info[5]
+                }
+        else:
+            crash_data_dict = {
+                'Latitude': lat,
+                'Longitude': lon,
+            }
+        print(crash_data_dict)
+        image = call_with_timeout(streetview.get_street_view_image, 30, lat, lon)
+        analysis = call_with_timeout(streetview.analyze_image_ai, 30, image.content, crash_data_dict)
 
-        return insghts
-    return dash.no_update
+        popup_style = {
+            'display': 'block',
+            'position': 'fixed',
+            'left': '50%',
+            'top': '50%',
+            'transform': 'translate(-50%, -50%)',
+            'zIndex': '1000',
+            'backgroundColor': 'white',
+            'border': '1px solid black',
+            'padding': '10px',
+            'maxWidth': '1280px',
+            'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
+        }
+        image_element = html.Div([
+            html.H1(location_name),
+            html.Button(html.I(className="fa fa-window-close"), id="close-popup-button", n_clicks=0),
+            dcc.Markdown(analysis, style={'maxWidth': '540px'}),
+            html.Img(src=image.url, style={'maxWidth': '640px', 'maxHeight': '640px'})
+        ])
+        print(f"Displaying popup for {location_name}.")
+        return image_element, popup_style, None
+
+    # Fallback or initial state
+    print("No valid trigger for display/hide, returning no_update.")
+    return dash.no_update, dash.no_update, None
 
 # --- Python Callback 1: Handle User Input and Display Immediately (with loading placeholder) ---
 @app.callback(
@@ -1376,12 +1474,14 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
     user_question = user_question_data["question"]
 
     #bot_response_message_content = chatbotv1.generate_response(user_question)
-    bot_response_message_content = chatbot.get_agent_response(user_question)
+    bot_response_data = chatbotv4.get_agent_response(user_question)
+    bot_response_text = bot_response_data.get("text", "No response.")
+    fig = bot_response_data.get("visualization_data")
     
     # Remove loading message
     current_chat_data.pop()
 
-    msg = {"sender": "bot", "message": bot_response_message_content.text, "map": bot_response_message_content.map}
+    msg = {"sender": "bot", "message": bot_response_text, "map": fig}
     current_chat_data.append(msg)
     #chat_history.append(msg)
     new_scroll_trigger = current_scroll_trigger + 1
@@ -2724,10 +2824,7 @@ if __name__ == '__main__':
     globals()['census_polygons_by_county'] = census_polygons_by_county
     globals()['data_by_county'] = data_by_county
 
-    # Create chatbot instance
-    chatbot = chatbotv3.RoadSafetyChatbot()
-
     print("Finished loading webapp.")
-    print("127.0.0.1:8080")
+    print("127.0.0.1:8050")
 
-    app.run(port="8080", debug=False)
+    app.run(port="8050", debug=True)

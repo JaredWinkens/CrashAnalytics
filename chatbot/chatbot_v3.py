@@ -32,7 +32,7 @@ for collection in chroma_collections:
 
 dataset_file = open(DATASET_CONFIG_PATH, "r")
 data_sources = json.load(dataset_file)
-data_final_df = pd.read_csv(data_sources[0]['path'], header=0, parse_dates=data_sources[0]['date_columns'], usecols=data_sources[0]['relevant_columns'])
+data_final_df = pd.read_csv(data_sources[0]['path'], header=0, parse_dates=data_sources[0]['date_columns'], usecols=data_sources[0]['relevant_columns'], nrows=100)
 geometry = [Point(xy) for xy in zip(data_final_df['Longitude'], data_final_df['Latitude'])]
 crashes_gdf = gpd.GeoDataFrame(data_final_df, geometry=geometry, crs="EPSG:4326")
 

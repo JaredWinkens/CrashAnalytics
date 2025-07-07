@@ -180,7 +180,7 @@ def main():
 
     file = open(DATASET_CONFIG_PATH, "r")
     data_sources = json.load(file)
-    sample_size = 1500
+    sample_size = 100
     # Process datasources
     for source in data_sources:
         name = source['name']
@@ -191,9 +191,9 @@ def main():
         data_sampled = data.sample(n=sample_size, random_state=42)
 
         # Create SQL table from dataframe
-        create_sql_table(data_sampled, name)
+        create_sql_table(data, name)
         # Create Chroma collection from dataframe
-        create_chroma_collection(data_sampled, name, desc, meta)
+        #create_chroma_collection(data_sampled, name, desc, meta)
 
 
 if __name__ == "__main__":

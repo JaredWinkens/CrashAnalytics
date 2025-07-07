@@ -12,7 +12,9 @@ def load_chatbot_layout(initial_chat_history):
                     # The 'chat-end-marker' will always be the last element
                 ]
             ),
-            
+            html.Div(id='loading-output', children=[
+                dcc.Loading(id="loading-spinner", type="circle", children=html.Div(id="loading-div")),
+            ], style={'textAlign': 'center', 'marginBottom': '15px'}),
         ]),
 
         # Input area FIXED at the bottom of the viewport

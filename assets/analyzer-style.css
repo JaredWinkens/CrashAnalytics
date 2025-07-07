@@ -80,7 +80,7 @@
     border: none;
     border-radius: 5px;
     cursor: pointer;
-    width: 150px; /* Slightly smaller size */
+    width: 40px; /* Slightly smaller size */
     height: 40px; /* Slightly smaller size */
     font-size: 1.1em; /* Adjust font size */
     position: relative;
@@ -91,6 +91,22 @@
 #insight-button :hover{
     color: #9fbef0;
 }
+
+#close-popup-button{
+    margin-top: 5px;
+    margin-right: 5px;
+    font-size: 25px;
+    position: absolute;
+    top: 0;
+    right: 0;
+    background-color: transparent;
+    border: none;
+    color: #e41010;
+}
+#close-popup-button:hover{
+  color: #aa0d0d;
+}
+
 /* Media query for larger screens (e.g., tablets and desktops) */
 @media (min-width: 768px) {
     .insights-wrapper {

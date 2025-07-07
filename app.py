@@ -2105,19 +2105,20 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         fig = go.Figure([
             go.Choroplethmapbox(
                 geojson=json.loads(missing.to_json()),
-                locations=missing['id'],
-                z=[0]*len(missing),
-                colorscale=[[0,"black"],[1,"black"]],
+                # fall back to GEOIDFQ if 'id' isn’t present
+                locations=missing['id'] if 'id' in missing.columns else missing['GEOIDFQ'],
+                z=[0] * len(missing),
+                colorscale=[[0, "black"], [1, "black"]],
                 marker_opacity=0.9,
                 marker_line_width=1,
                 showscale=False,
                 featureidkey="properties.id",
                 name="Missing",
-                hovertemplate="<extra></extra>" 
+                hovertemplate="<extra></extra>"
             ),
-                go.Choroplethmapbox(
+            go.Choroplethmapbox(
                 geojson=json.loads(valid.to_json()),
-                locations=valid['id'],
+                locations=valid['id'] if 'id' in valid.columns else valid['GEOIDFQ'],
                 z=valid['Prediction'],
                 colorscale='YlGnBu',
                 marker_opacity=0.6,
@@ -2125,11 +2126,13 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
                 colorbar=dict(title="Prediction"),
                 featureidkey="properties.id",
                 name="Prediction",
-                hovertemplate=
-                "<b>Tract %{location}</b><br>" +
-                "Predicted Crash Rate: %{z:.2f}<extra></extra>"
+                hovertemplate=(
+                    "<b>Tract %{location}</b><br>"
+                    "Predicted Crash Rate: %{z:.2f}<extra></extra>"
+                )
             )
         ])
+
 
         # compute center only if there's data
         if not gdf.empty:

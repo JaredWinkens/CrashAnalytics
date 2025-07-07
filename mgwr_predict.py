@@ -3,9 +3,7 @@
 predict_mgwr.py
 
 A utility to load MGWR models and generate predictions into a GeoPackage,
-using 'GEOIDFQ' as the tract identifier, then stitch those predictions onto the full set of tracts so that
-missing tracts remain in the output with NaN for MGWR_Prediction, carry over all original variables, and include an 'id' column and 'Region' for app use.
-Handles duplicate suffixes by preferring imported values (_y) over geometry defaults (_x).
+using 'GEOIDFQ' as the tract identifier. Recomputes MGWR_Prediction from updated inputs and writes directly without merging.
 """
 import sys
 import os
@@ -21,7 +19,6 @@ logger = logging.getLogger(__name__)
 # ——— Paths ———
 BASE_DIR = os.path.dirname(__file__)
 MODEL_PKL = os.path.join(BASE_DIR, 'MGWR', 'mgwr_models.pkl')
-FULL_TRACTS_GPKG = os.path.join(BASE_DIR, 'data', 'TractData.gpkg')
 
 
 def load_models(path):
@@ -37,81 +34,131 @@ def load_models(path):
 
 
 def predict(input_gpkg, output_gpkg, models):
-    # 1. Read prediction input
+    # 1. Read the updated input GeoPackage
     try:
-        gdf_in = gpd.read_file(input_gpkg)
-        logger.debug(f"Loaded {len(gdf_in)} features from {input_gpkg}")
+        gdf = gpd.read_file(input_gpkg)
+        logger.debug(f"Loaded {len(gdf)} features from {input_gpkg}")
     except Exception as e:
         logger.error(f"Error reading '{input_gpkg}': {e}")
         sys.exit(1)
 
-    gdf_in = gdf_in.copy()
-    # ensure id
-    gdf_in['id'] = gdf_in.get('GEOIDFQ', gdf_in.index.astype(str)).astype(str)
+    # 2. Log region distribution
+    try:
+        region_counts = gdf['Region'].value_counts()
+        logger.debug("Regions and counts:\n%s", region_counts)
+    except Exception:
+        logger.debug("Could not compute region counts.")
 
-    # build predictions
-    preds = np.full(len(gdf_in), np.nan, dtype=float)
+    # 3. Static mapping of region-specific features using actual column names
+    REGION_FIELDS = {
+        "A": [
+            "UNEMPPCT", "pct_residential", "pct_industrial", "pct_retail",
+            "pct_commercial", "AADT", "BikingTrips.Start.", "BikingTrips.End.",
+            "CarpoolTrips.Start.", "PublicTransitTrips.Start.", "PublicTransitTrips.End.",
+            "AvgCommuteMiles.Start."
+        ],
+        "B": [
+            "PEOPCOLORPCT", "UNEMPPCT", "pct_residential", "pct_industrial",
+            "pct_retail", "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+            "BikingTrips.Start.", "WalkingTrips.End.", "PublicTransitTrips.Start.",
+            "AvgCommuteMiles.End."
+        ],
+        "C": [
+            "UNEMPPCT", "pct_residential", "pct_industrial", "pct_retail",
+            "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+            "BikingTrips.Start.", "WalkingTrips.End.", "PublicTransitTrips.Start.",
+            "PublicTransitTrips.End.", "AvgCommuteMiles.Start."
+        ],
+        "D": [
+            "PEOPCOLORPCT", "pct_residential", "pct_industrial", "pct_retail",
+            "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+            "BikingWalkingMiles.End.", "BikingTrips.Start.", "BikingTrips.End.",
+            "CarpoolTrips.End.", "PublicTransitTrips.End.", "AvgCommuteMiles.Start."
+        ],
+        "E": [
+            "PEOPCOLORPCT", "UNEMPPCT", "pct_residential", "pct_industrial",
+            "pct_retail", "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+            "BikingWalkingMiles.End.", "BikingTrips.Start.", "WalkingTrips.Start.",
+            "PublicTransitTrips.Start.", "AvgCommuteMiles.End."
+        ],
+        "FG": [
+            "UNEMPPCT", "pct_residential", "pct_industrial", "pct_retail",
+            "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+            "BikingWalkingMiles.End.", "BikingTrips.Start.", "BikingTrips.End.",
+            "CarpoolTrips.End.", "PublicTransitTrips.Start.", "PublicTransitTrips.End.",
+            "AvgCommuteMiles.End."
+        ],
+        "HIJ": [
+            "UNEMPPCT", "DISABILITYPCT", "pct_residential", "pct_industrial",
+            "pct_retail", "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+            "BikingTrips.Start.", "BikingTrips.End.", "CarpoolTrips.Start.",
+            "CarpoolTrips.End.", "PublicTransitTrips.Start.", "PublicTransitTrips.End."
+        ]
+    }
+
+    # 4. Prepare predictions array
+    preds = np.full(len(gdf), np.nan, dtype=float)
+
+    # 5. Loop through regions and compute predictions
     for region, result in models.items():
-        mask = gdf_in.get('Region') == region
-        idx = np.nonzero(mask)[0]
-        if idx.size == 0:
-            logger.warning(f"No features for region '{region}'")
+        features = REGION_FIELDS.get(region)
+        if not features:
+            logger.warning(f"No feature list for region '{region}'")
             continue
-        region_preds = result.predy.flatten()
-        n = min(len(region_preds), idx.size)
-        preds[idx[:n]] = region_preds[:n]
+
+        mask = gdf['Region'] == region
+        if not mask.any():
+            continue
+
+        # Ensure feature columns exist, filling missing with NaN
+        for f in features:
+            if f not in gdf.columns:
+                logger.warning(f"Missing feature '{f}', filling with NaN")
+                gdf[f] = np.nan
+
+        X = gdf.loc[mask, features].to_numpy(dtype=float)
+        coefs = result.params
+
+        # Add intercept column if required
+        if coefs.ndim == 2 and coefs.shape[1] == X.shape[1] + 1:
+            X = np.hstack([np.ones((X.shape[0], 1)), X])
+        elif coefs.ndim != 2 or coefs.shape[1] not in (X.shape[1], X.shape[1] + 1):
+            logger.warning(f"Coef shape {coefs.shape} incompatible with X shape {X.shape}")
+            continue
+
+        # Align coefficient rows
+        if coefs.shape[0] != X.shape[0]:
+            coefs = coefs[: X.shape[0], :]
+
+        # Compute predictions
+        preds_region = np.einsum('ij,ij->i', coefs, X)
+        preds[mask] = preds_region
+
+    # 6. Clamp to zero and assign
     preds = np.clip(preds, 0, None)
-    gdf_in['MGWR_Prediction'] = [None if np.isnan(x) else float(x) for x in preds]
+    gdf['MGWR_Prediction'] = [None if np.isnan(x) else float(x) for x in preds]
 
-    # 2. Read full tracts
-    try:
-        gdf_all = gpd.read_file(FULL_TRACTS_GPKG)
-        logger.debug(f"Loaded {len(gdf_all)} full tracts from {FULL_TRACTS_GPKG}")
-    except Exception as e:
-        logger.error(f"Error reading full tract layer: {e}")
-        sys.exit(1)
-
-    # 3. Merge on GEOIDFQ
-    cols_pred = [c for c in gdf_in.columns if c != 'geometry']
-    gdf_pred = gdf_in[cols_pred]
-    gdf_full = gdf_all.merge(
-        gdf_pred,
-        on='GEOIDFQ', how='left',
-        suffixes=('_x','_y')
-    )
-    # ensure id
-    gdf_full['id'] = gdf_full['GEOIDFQ'].astype(str)
-
-    # 4. Resolve duplicates: drop *_x, rename *_y to base name
-    drop_cols = [c for c in gdf_full.columns if c.endswith('_x')]
-    rename_map = {c: c[:-2] for c in gdf_full.columns if c.endswith('_y')}
-    if drop_cols:
-        logger.debug(f"Dropping columns: {drop_cols}")
-        gdf_full = gdf_full.drop(columns=drop_cols)
-    if rename_map:
-        logger.debug(f"Renaming columns: {rename_map}")
-        gdf_full = gdf_full.rename(columns=rename_map)
-        # 4.5. For any tracts still missing a Region, assign default = 'B'
-    if 'Region' in gdf_full.columns:
-        gdf_full['Region'] = gdf_full['Region'].fillna('B')
+    # 7. Ensure an 'id' column for Dash
+    if 'GEOIDFQ' in gdf.columns:
+        gdf['id'] = gdf['GEOIDFQ'].astype(str)
     else:
-        gdf_full['Region'] = 'B'
+        gdf['id'] = gdf.index.astype(str)
 
-    # 5. Write output
+    # 8. Write the updated GeoPackage directly
     try:
-        gdf_full.to_file(output_gpkg, driver='GPKG')
-        logger.debug(f"Wrote merged GPKG to {output_gpkg}")
+        gdf.to_file(output_gpkg, driver='GPKG')
+        logger.debug(f"Wrote updated GPKG to {output_gpkg}")
     except Exception as e:
         logger.error(f"Error writing '{output_gpkg}': {e}")
         sys.exit(1)
 
 
 def main():
-    inp = sys.argv[1] if len(sys.argv)>1 else './MGWR/merged.gpkg'
-    out = sys.argv[2] if len(sys.argv)>2 else inp.replace('.gpkg','_with_all_tracts.gpkg')
+    inp = sys.argv[1] if len(sys.argv) > 1 else './MGWR/merged.gpkg'
+    out = sys.argv[2] if len(sys.argv) > 2 else inp.replace('.gpkg', '_with_all_tracts.gpkg')
     logger.debug(f"Input: {inp}, Output: {out}")
     models = load_models(MODEL_PKL)
     predict(inp, out, models)
 
-if __name__=='__main__':
+if __name__ == '__main__':
     main()

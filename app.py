@@ -18,29 +18,16 @@ import geopandas as gpd
 import math
 import json
 import subprocess
-import chatbot.chatbot_layout as chatbotlayout
-#import chatbot.chatbot_v3 as chatbotv3
 import analyzer.map_analyzer as map_analyzer
-import concurrent.futures
 import analyzer.streetview_analyzer as streetview
-#from chatbot.mcp_client import get_gemini_response_from_mcp
 import chatbot.chatbot_v4 as chatbotv4
-import asyncio
+import layouts.census_data_layout
+import layouts.data_download_layout
+import layouts.heatmap_layout
+import layouts.chatbot_layout
+import layouts.crash_analyzer_layout
+import layouts.predictions_layout
 
-def call_with_timeout(func, timeout, *args, **kwargs):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(func, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout)
-        except concurrent.futures.TimeoutError:
-            print(f"Function '{func.__name__}' timed out after {timeout} seconds.")
-            return f"Function '{func.__name__}' timed out after {timeout} seconds."
-        except Exception as e:
-            print(f"Function '{func.__name__}' raised an exception: {e}")
-            return f"Function '{func.__name__}' raised an exception: {e}"
-# disk_cache = diskcache.Cache("./cache")
-# background_callback_manager = DiskcacheManager(disk_cache)       
-# all editable fields for prediction tab
 ALL_FIELDS = [
     ("DEMOGIDX_5",     "Demographic Index (5-yr ACS)",        0.01),
     ("PEOPCOLORPCT",   "People of Color (%)",                0.01),
@@ -767,6 +754,13 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
                     html.Button('Download Filtered Data', id='download_button_tab1', n_clicks=0, style={'margin-top': '10px', 'display': 'block'})
                 ])
             ]
+        elif prefix == 'tab6':
+            controls += [
+                html.Div([
+                    html.Button('Apply Filter', id=f'apply_filter_{prefix}', n_clicks=0, style={'margin-top': '30px'}),
+                    html.Button('Clear Drawing', id=f'clear_drawing_{prefix}', n_clicks=0, style={'margin-top': '10px', 'margin-left': '10px'}),
+                ])
+            ]
         else:
             controls += [
                 html.Div([
@@ -865,6 +859,7 @@ app.layout = html.Div([
         dcc.Tab(label='Census Data', value='tab-3'),
         dcc.Tab(label='Predictions', value='tab-4'),
         dcc.Tab(label='ChatBot', value='tab-5'),
+        dcc.Tab(label='Crash Analyzer', value='tab-6')
     ], style={'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'zIndex': '1000'}),
 
     # Header Section
@@ -1000,308 +995,35 @@ def get_county_data(counties_selected):
     else:
         return pd.DataFrame()
 
-message = "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
-            "**Example Prompts**\n\n" \
-            "- What are the top 5 cities with the most crashes in 2021, showing counts?\n\n" \
-            "- What is the average number of injuries for crashes involving a commercial vehicle?\n\n" \
-            "- Describe a typical crash involving a pedestrian.\n\n" \
-            "- Plot all pedestrian-related crashes in Buffalo. \n\n"
 # Callback to render content based on selected tab
 @app.callback(Output('tabs-content', 'children'), Input('tabs', 'value'))
 def render_content(tab):
     available_counties = list(county_coordinates.keys())
-    
+    initial_bot_message = "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
+            "**Example Prompts**\n\n" \
+            "- What are the top 5 cities with the most crashes in 2021, showing counts?\n\n" \
+            "- Describe a typical crash at an intersection.\n\n" \
+            "- Plot all pedestrian-related crashes in Buffalo. \n\n"
     # Ensure that the unique lists are available (they must be defined globally after loading the data)
     global unique_weather, unique_light, unique_road
 
     if tab == 'tab-1': # Data Downloader Tab
-        return html.Div(
-            children=[
-                html.Div(
-                    children=[
-                        html.Div(
-                            common_controls(
-                                'tab1',
-                                show_buttons=True,
-                                available_counties=available_counties,
-                                unique_weather=unique_weather,
-                                unique_light=unique_light,
-                                unique_road=unique_road,
-                                unique_crash_types=unique_crash_types
-                            ),
-                            className='responsive-controls'
-                        ),
-                        dcc.Graph(
-                            id='scatter_map',
-                            className='responsive-graph',
-                            figure={
-                                'data': [],
-                                'layout': {
-                                    'mapbox': {
-                                        'style': "open-street-map",
-                                        'center': {
-                                            'lat': county_coordinates[available_counties[0]]['lat'],
-                                            'lon': county_coordinates[available_counties[0]]['lon']
-                                        },
-                                        'zoom': 10
-                                    },
-                                    'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
-                                }
-                            },
-                            config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
-                        )
-                    ],
-                    className='desktop-layout'
-                ),
-                html.Div(
-                    id='warning_message_tab1',
-                    style={'color': 'red', 'textAlign': 'center', 'margin': '10px'}
-                )
-            ]
-        )
+        return layouts.data_download_layout.load_data_download_layout(available_counties, unique_weather, unique_light, unique_road, unique_crash_types, county_coordinates, common_controls)
 
     elif tab == 'tab-2': # Heatmap Tab
-        return html.Div([
-            html.Div([
-                html.Div([
-                    html.Label('Adjust Heatmap Radius:', style={'font-weight': 'bold'}),
-                    html.Div(
-                        "i",
-                        title="This slider adjusts the radius of influence for the heatmap.",
-                        style={
-                            'display': 'inline-block',
-                            'background-color': '#ccc',
-                            'border': '1px solid #999',
-                            'border-radius': '3px',
-                            'width': '20px',
-                            'height': '20px',
-                            'text-align': 'center',
-                            'line-height': '20px',
-                            'cursor': 'help',
-                            'margin-left': '5px'
-                        }
-                    ),
-                    dcc.Slider(
-                        id='radius_slider_tab2',
-                        min=0.1,
-                        max=10,
-                        step=0.1,
-                        value=1,
-                        marks={
-                            0.1: '0.1 mi',
-                            1: '1 mi',
-                            2: '2 mi',
-                            3: '3 mi',
-                            4: '4 mi',
-                            5: '5 mi',
-                            6: '6 mi',
-                            7: '7 mi',
-                            8: '8 mi',
-                            9: '9 mi',
-                            10: '10 mi'
-                        },
-                        tooltip={'placement': 'bottom', 'always_visible': True}
-                    )
-                ], style={'margin-bottom': '20px'}),
-                
-                common_controls(
-                    'tab2',
-                    show_buttons=True,
-                    available_counties=available_counties,
-                    unique_weather=unique_weather,
-                    unique_light=unique_light,
-                    unique_road=unique_road,
-                    unique_crash_types=unique_crash_types)
-            ], className='responsive-controls'),
-            
-            # Right-side: The Heatmap Graph container
-            html.Div([
-                dcc.Graph(
-                    id='heatmap_graph',
-                    className='responsive-graph',
-                    figure={
-                        'data': [],
-                        'layout': {
-                            'mapbox': {
-                                'style': "open-street-map",
-                                'center': {
-                                    'lat': county_coordinates[available_counties[0]]['lat'],
-                                    'lon': county_coordinates[available_counties[0]]['lon']
-                                },
-                                'zoom': 10
-                            },
-                            'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
-                        }
-                    },
-                    config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
-                ),
-                # Hidden button for closing the popup (must exist in initial layout)
-                html.Button(html.I(className="fa-window-close"),id="close-popup-button", n_clicks=0, style={'display': 'none'}),
-
-                dcc.Loading(
-                    html.Div(id='image-popup', style={
-                        'position': 'fixed',
-                        'left': '50%',
-                        'top': '50%',
-                        'transform': 'translate(-50%, -50%)',
-                        'zIndex': '1000',
-                        'backgroundColor': 'white',
-                        'border': '1px solid black',
-                        'padding': '10px',
-                        'display': 'none', # Start hidden
-                        'maxWidth': '320px',
-                        'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
-                    }),
-                ),
-                html.Button(
-                    id='insight-button',n_clicks=0, 
-                    children=[
-                        html.I(className="fas fa-lightbulb", title="Get AI Powered Insights"),
-                    ]),
-        ], className='responsive-graph'),
-    
-    ], className='desktop-layout')
+        return layouts.heatmap_layout.load_heatmap_layout(available_counties, unique_weather, unique_light, unique_road, unique_crash_types, county_coordinates, common_controls)
 
     elif tab == 'tab-3': # Census Data Tab
-        return html.Div([
-            html.Div([
-                census_controls(),
-                html.Div(id='warning_message_tab3', style={'color': 'red'})
-            ], className='responsive-controls'),
-            html.Div(
-                dcc.Graph(
-                    id='scatter_map_tab3',
-                    className='responsive-graph',
-                    figure={
-                        'data': [],
-                        'layout': {
-                            'mapbox': {
-                                'style': "open-street-map",
-                                'center': {
-                                    'lat': county_coordinates[available_counties[0]]['lat'],
-                                    'lon': county_coordinates[available_counties[0]]['lon']
-                                },
-                                'zoom': 10
-                            },
-                            'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
-                        }
-                    },
-                    config={
-                        'modeBarButtonsToRemove': ['lasso2d'], 
-                        'displayModeBar': True, 
-                        'scrollZoom': True
-                    }
-                ),
-                className='responsive-graph'
-            )
-        ], className='desktop-layout')
+        return layouts.census_data_layout.load_census_data_layout(census_controls, county_coordinates, available_counties)
 
     elif tab == 'tab-4':  # Predictions Tab
-        return html.Div([
-            # Left-side: Controls (Model, Prediction Bar, County Selector, and Editing UI)
-            html.Div([
-                html.Div([
-                    html.Label('Select AI Model:', style={'fontSize': '12px'}),
-                    html.Span(
-                        "i",
-                        title="Choose a tract to edit and apply the new values, then reset to change another one. Update one tract at a time.",
-                        style={
-                            'display': 'inline-block',
-                            'backgroundColor': '#ccc',
-                            'border': '1px solid #999',
-                            'borderRadius': '50%',
-                            'width': '16px',
-                            'height': '16px',
-                            'textAlign': 'center',
-                            'lineHeight': '16px',
-                            'cursor': 'help',
-                            'marginLeft': '5px',
-                            'fontSize': '12px'
-                        }
-                    )
-                ], style={'display': 'flex', 'alignItems': 'center'}),
-                dcc.Dropdown(
-                    id='model_selector_tab4',
-                    options=[
-                        {'label': 'MGWR Model',   'value': 'mgwr_predict.py'},
-                    ],
-                    value='mgwr_predict.py',
-                    clearable=False,
-                    style={'width': '100%', 'fontSize': '12px'}
-                ),
-                html.Div(
-                    id='prediction_bar',
-                    style={
-                        'width': '100%',
-                        'padding': '10px',
-                        'backgroundColor': '#eee',
-                        'textAlign': 'center',
-                        'fontWeight': 'bold'
-                    }
-                ),
-                dcc.Store(id='original_prediction'),
-                html.Br(),
-                html.Label('Select County:', style={'fontSize': '12px'}),
-                dcc.Dropdown(
-                    id='county_selector_tab4',
-                    options=[],  # to be updated via callback
-                    multi=True,
-                    placeholder='Select county by CNTY_NAME',
-                    style={'width': '100%', 'fontSize': '12px'}
-                ),
-                html.Br(),
-                html.Label('Prediction Data Controls', style={'fontSize': '12px'}),
-                html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0, style={'fontSize': '12px'}),
-                html.Hr(),
-                html.Div(
-                    [ make_field_row(var, LABELS[var], STEPS[var]) for var,_,_ in ALL_FIELDS ],
-                    id="modal_fields_container"
-                ),
-                html.Div([
-                html.Button("Apply Updated Data",
-                    id="apply_updated_data",
-                    n_clicks=0,
-                    style={'marginRight':'10px','fontSize':'12px'}),
-                html.Button("Reset Predictions",
-                    id="reset_predictions",
-                    n_clicks=0,
-                    style={'fontSize':'12px'})
-                    ], style={'marginTop':'10px','textAlign':'center'}),
-            ], className='responsive-controls'),
-            # Right-side: Predictions Map
-            html.Div([
-                # Predictions map
-                dcc.Graph(
-                    id='predictions_map',
-                    className='responsive-graph',
-                    figure={
-                        'data': [],
-                        'layout': {
-                            'mapbox': {
-                                'style': "open-street-map",
-                                'center': {'lat': 40.7128, 'lon': -74.0060},
-                                'zoom': 10
-                            },
-                            'margin': {'l': 0, 'r': 0, 't': 0, 'b': 0}
-                        }
-                    },
-                    config={
-                        'modeBarButtonsToRemove': ['lasso2d'],
-                        'displayModeBar': True,
-                        'scrollZoom': True
-                    }
-                ),
-
-                # Comparison scatter plot
-                dcc.Graph(
-                    id='comparison_graph',
-                    className='responsive-graph'
-                )
-            ], className='responsive-graph'),
-        ], className='desktop-layout')
+        return layouts.predictions_layout.load_predictions_layout(make_field_row, LABELS, STEPS, ALL_FIELDS)
     
     elif tab == 'tab-5': # Chatbot Tab
-        return chatbotlayout.load_chatbot_layout([{"sender": "bot", "message": message, "map": None}])
+        return layouts.chatbot_layout.load_chatbot_layout([{"sender": "bot", "message": initial_bot_message, "map": None}])
+    
+    elif tab == 'tab-6': # Crash Analyzer
+        return layouts.crash_analyzer_layout.load_crash_analyzer_layout(available_counties, unique_weather, unique_light, unique_road, unique_crash_types, county_coordinates, common_controls)
 
 @app.callback(
     Output('chat-history-store', 'data'),
@@ -1313,29 +1035,25 @@ def render_content(tab):
 )
 def clear_chat_history(n_clicks, current_chat_data, curent_chat_container):
     if n_clicks and n_clicks > 0:
-        # Reset the chat history to an empty list
-        # while len(chat_history) > 1:
-        #     chat_history.pop()
-        return current_chat_data[0:1], curent_chat_container[0:1] # Empty list for store, empty list for children
-    return dash.no_update, dash.no_update # If button not clicked, do nothing
+        chatbotv4.create_new_chat_session()
+        return current_chat_data[0:1], curent_chat_container[0:1]
+    return dash.no_update, dash.no_update
 
 @app.callback(
-    Output('image-popup', 'children'),
-    Output('image-popup', 'style'),
-    Output('heatmap_graph', 'clickData'),
-    Input('heatmap_graph', 'clickData'),
+    Output('image-popup-tab2', 'children'),
+    Output('image-popup-tab2', 'style'),
     Input('insight-button', 'n_clicks'), 
-    Input('close-popup-button', 'n_clicks'),
+    Input('close-popup-tab2', 'n_clicks'),
     State('heatmap_graph', 'figure'),      
     prevent_initial_call=True
 )
-def manage_popup_display(clickData, insight_button_n_clicks, close_button_n_clicks, fig_snapshot):
+def display_insight_popup(insight_button_n_clicks, close_button_n_clicks, fig_snapshot):
     triggered_id = ctx.triggered_id
 
     # If the close button was clicked
-    if triggered_id == 'close-popup-button' and close_button_n_clicks is not None:
+    if triggered_id == 'close-popup-tab2' and close_button_n_clicks is not None:
         print("Close button clicked, hiding popup.")
-        return None, {'display': 'none'}, None
+        return None, {'display': 'none'}
 
     if triggered_id == 'insight-button' and insight_button_n_clicks and insight_button_n_clicks > 0:
         fig_width = 1280
@@ -1344,7 +1062,7 @@ def manage_popup_display(clickData, insight_button_n_clicks, close_button_n_clic
         image_bytes = pio.to_image(fig=fig_snapshot, format='png', scale=1, width=fig_width, height=fig_height)
         encoded_image = base64.b64encode(image_bytes).decode('utf-8')
         data_url = f"data:image/png;base64,{encoded_image}"
-        insights = call_with_timeout(map_analyzer.generate_response, 30, image_bytes)
+        insights = map_analyzer.generate_response(image_bytes)
         popup_style = {
             'display': 'block',
             'position': 'fixed',
@@ -1361,13 +1079,33 @@ def manage_popup_display(clickData, insight_button_n_clicks, close_button_n_clic
         }
         image_element = html.Div([
             html.H1("Image Insights"),
-            html.Button(html.I(className="fa fa-window-close"), id="close-popup-button", n_clicks=0),
+            html.Button(html.I(className="fa fa-window-close"), id="close-popup-tab2",className="close-popup-button", n_clicks=0),
             dcc.Markdown(insights, style={'maxWidth': '640px'}),
             html.Img(src=data_url, style={'maxWidth': '640px', 'maxHeight': '480px'})
         ])
-        return image_element, popup_style, None
+        return image_element, popup_style
     
-    if triggered_id == 'heatmap_graph':
+    # Fallback or initial state
+    print("No valid trigger for display/hide, returning no_update.")
+    return dash.no_update, dash.no_update
+
+@app.callback(
+    Output('image-popup-tab6', 'children'),
+    Output('image-popup-tab6', 'style'),
+    Output('scatter_map_tab6', 'clickData'),
+    Input('scatter_map_tab6', 'clickData'),
+    Input('close-popup-tab6', 'n_clicks'),     
+    prevent_initial_call=True
+)
+def display_streetview_popup(clickData, close_button_n_clicks):
+    triggered_id = ctx.triggered_id
+     
+    # If the close button was clicked
+    if triggered_id == 'close-popup-tab6' and close_button_n_clicks is not None:
+        print("Close button clicked, hiding popup.")
+        return None, {'display': 'none'}, None
+    
+    if triggered_id == 'scatter_map_tab6':
         print(f"Click data {clickData}.")    
         lon = clickData['points'][0]['lon']
         lat = clickData['points'][0]['lat']
@@ -1391,8 +1129,8 @@ def manage_popup_display(clickData, insight_button_n_clicks, close_button_n_clic
                 'Longitude': lon,
             }
         print(crash_data_dict)
-        image = call_with_timeout(streetview.get_street_view_image, 30, lat, lon)
-        analysis = call_with_timeout(streetview.analyze_image_ai, 30, image.content, crash_data_dict)
+        image = streetview.get_street_view_image(lat, lon)
+        analysis = streetview.analyze_image_ai(image.content, crash_data_dict)
 
         popup_style = {
             'display': 'block',
@@ -1409,7 +1147,7 @@ def manage_popup_display(clickData, insight_button_n_clicks, close_button_n_clic
         }
         image_element = html.Div([
             html.H1(location_name),
-            html.Button(html.I(className="fa fa-window-close"), id="close-popup-button", n_clicks=0),
+            html.Button(html.I(className="fa fa-window-close"), id="close-popup-tab6",className="close-popup-button", n_clicks=0),
             dcc.Markdown(analysis, style={'maxWidth': '540px'}),
             html.Img(src=image.url, style={'maxWidth': '640px', 'maxHeight': '640px'})
         ])
@@ -1420,7 +1158,7 @@ def manage_popup_display(clickData, insight_button_n_clicks, close_button_n_clic
     print("No valid trigger for display/hide, returning no_update.")
     return dash.no_update, dash.no_update, None
 
-# --- Python Callback 1: Handle User Input and Display Immediately (with loading placeholder) ---
+# --- Handle User Input and Display Immediately (with loading placeholder) ---
 @app.callback(
     Output('user-input', 'value'),
     Output('chat-history-store', 'data', allow_duplicate=True),
@@ -1440,7 +1178,6 @@ def handle_user_input(send_button_clicks, n_submits, user_question, current_chat
     # Append user message
     msg = {"sender": "user", "message": user_question}
     current_chat_data.append(msg)
-    #chat_history.append(msg)
 
     # Append temporary loading message
     loading_msg = {"sender": "bot", "message": "Thinking...", "map": None}
@@ -1458,7 +1195,7 @@ def handle_user_input(send_button_clicks, n_submits, user_question, current_chat
         }
     )
 
-# --- Python Callback 2: Generate Bot Response (updates the specific bot message) ---
+# --- Generate Bot Response (updates the specific bot message) ---
 @app.callback(
     Output('chat-history-store', 'data', allow_duplicate=True),
     Output('scroll-trigger', 'data', allow_duplicate=True),    
@@ -1473,7 +1210,6 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
 
     user_question = user_question_data["question"]
 
-    #bot_response_message_content = chatbotv1.generate_response(user_question)
     bot_response_data = chatbotv4.get_agent_response(user_question)
     bot_response_text = bot_response_data.get("text", "No response.")
     fig = bot_response_data.get("visualization_data")
@@ -1483,17 +1219,16 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
 
     msg = {"sender": "bot", "message": bot_response_text, "map": fig}
     current_chat_data.append(msg)
-    #chat_history.append(msg)
     new_scroll_trigger = current_scroll_trigger + 1
 
     return current_chat_data, new_scroll_trigger
 
-# --- Python Callback 3: Update Chat History Display and Scroll after all data is in chat-history-store ---
+# --- Update Chat History Display and Scroll after all data is in chat-history-store ---
 @app.callback(
     Output('chat-history-container', 'children', allow_duplicate=True),
     Output('chat-history-store', 'data', allow_duplicate=True),
     Output('scroll-trigger', 'data', allow_duplicate=True),
-    Input('chat-history-store', 'data'), # Listen to changes in the history store
+    Input('chat-history-store', 'data'),
     prevent_initial_call='initial_duplicate'
 )
 def update_chat_display(stored_chat_data):
@@ -1503,10 +1238,9 @@ def update_chat_display(stored_chat_data):
     rendered_history_elements =[]
     for msg in stored_chat_data:
         if msg['sender'] == "user":
-            rendered_history_elements.append(chatbotlayout.render_user_message_bubble(msg['message']))
+            rendered_history_elements.append(layouts.chatbot_layout.render_user_message_bubble(msg['message']))
         elif msg['sender'] == "bot":
-            rendered_history_elements.append(chatbotlayout.render_bot_message_bubble(msg['message'], msg['map']))
-    #rendered_history_elements = [chatbotlayout.render_message_bubble(msg['sender'], msg['message']) for msg in stored_chat_data]
+            rendered_history_elements.append(layouts.chatbot_layout.render_bot_message_bubble(msg['message'], msg['map']))
     rendered_history_elements.append(html.Div(id='chat-end-marker'))
     return rendered_history_elements, stored_chat_data, 0
 
@@ -1549,7 +1283,12 @@ def toggle_vru_options_tab2(main_value):
 def toggle_vru_options_tab3(main_value):
     return {'display': 'block'} if main_value == 'VRU' else {'display': 'none'}
 
-
+@app.callback(
+    Output('data_type_vru_options_tab6', 'style'),
+    Input('data_type_selector_main_tab6', 'value')
+)
+def toggle_vru_options_tab6(main_value):
+    return {'display': 'block'} if main_value == 'VRU' else {'display': 'none'}
 
 # ----------------------------
 # 7.1. Callback for Data Downloader Tab (tab1)
@@ -2710,6 +2449,124 @@ def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_pat
         html.Div(f"Original Prediction: {fmt(original_prediction)}"),
         html.Div(f"Current Prediction:  {fmt(current_val)}"),
     ])
+
+# ----------------------------
+# 7.6. Callback for Crash Analyzer Tab (tab6)
+# ----------------------------
+@app.callback(
+    [
+        Output('scatter_map_tab6', 'figure'),
+        Output('scatter_map_tab6', 'selectedData')
+    ],
+    [
+        Input('apply_filter_tab6', 'n_clicks'),
+        Input('clear_drawing_tab6', 'n_clicks'),
+    ],
+    [
+        State('county_selector_tab6', 'value'),
+        State('scatter_map_tab6', 'selectedData'),
+        State('date_picker_tab6', 'start_date'),
+        State('date_picker_tab6', 'end_date'),
+        State('time_slider_tab6', 'value'),
+        State('day_of_week_checklist_tab6', 'value'),
+        State('weather_selector_tab6', 'value'),
+        State('light_selector_tab6', 'value'),
+        State('road_surface_selector_tab6', 'value'),
+        State('severity_selector_tab6','value'),
+        State('data_type_selector_main_tab6', 'value'),
+        State('data_type_selector_vru_tab6', 'value'),
+        State('crash_type_selector_tab6','value')
+    ]
+)
+def map_tab6(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
+             start_date, end_date, time_range, days_of_week,
+            weather, light, road_surface, severity_category, main_data_type, vru_data_type, crash_type):
+    ctx = callback_context
+    triggered = (
+        ctx.triggered[0]['prop_id'].split('.')[0]
+        if ctx.triggered else 'initial_load'
+    )
+    logger.debug(f"Triggered Input: {triggered}")
+
+    # load data
+    df = get_county_data(counties_selected)
+
+    # compute default center
+    if isinstance(counties_selected, list) and counties_selected and 'All' not in counties_selected:
+        lat_center = sum(county_coordinates[c]['lat'] for c in counties_selected) / len(counties_selected)
+        lon_center = sum(county_coordinates[c]['lon'] for c in counties_selected) / len(counties_selected)
+    else:
+        lat_center, lon_center = 40.7128, -74.0060
+
+    # helper to set uirevision key
+    key = 'tab6-' + '-'.join(sorted(counties_selected or []))
+
+    # empty‐data fallback
+    if df.empty:
+        fig = px.scatter_map(
+            pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
+            lat='Latitude', lon='Longitude', zoom=10, map_style="open-street-map"
+        )
+        fig.update_traces(marker=dict(opacity=0))
+        fig.update_layout(uirevision=key)
+        return fig, None
+
+    # apply filters
+    if triggered == 'apply_filter_tab6':
+        filtered = filter_data_tab1(
+            df, start_date, end_date, time_range,
+            days_of_week, weather, light, road_surface,  severity_category, crash_type,
+            main_data_type, vru_data_type, 
+        )
+        if selected_data and 'points' in selected_data:
+            keep = [pt['customdata'][0] for pt in selected_data['points']]
+            filtered = filtered[filtered['Case_Number'].isin(keep)]
+        df_to_plot = filtered
+        out_selected = selected_data
+        if crash_type and crash_type != 'All':
+            df_to_plot = df_to_plot[df_to_plot['Crash_Type'] == crash_type]
+
+    elif triggered == 'clear_drawing_tab6':
+        # reapply filters but drop box selection
+        df_to_plot = filter_data_tab1(
+            df, start_date, end_date, time_range,
+            days_of_week, weather, light, road_surface, severity_category,
+            main_data_type, vru_data_type, crash_type
+        )
+        out_selected = None
+
+    else:  # initial_load
+        df_to_plot = filter_data_tab1(
+            df, '1900-01-01', '1901-01-01', [0, 23],
+            ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+            'All','All','All', 'All', 'All',
+            main_data_type, vru_data_type
+        )
+        out_selected = None
+
+    # build the figure
+    if df_to_plot.empty:
+        fig = px.scatter_map(
+            pd.DataFrame({'Latitude': [lat_center], 'Longitude': [lon_center]}),
+            lat='Latitude', lon='Longitude', zoom=10, map_style="open-street-map"
+        )
+        fig.update_traces(marker=dict(opacity=0))
+    else:
+        fig = px.scatter_map(
+            df_to_plot,
+            lat='Y_Coord', lon='X_Coord', zoom=10, map_style="open-street-map",
+            hover_name='Case_Number',
+            hover_data={
+                'Crash_Date': True, 'Crash_Time': True,
+                'WeatherCon': True, 'LightCon': True,
+                'RoadSurfac': True
+            },
+            custom_data=['Case_Number']
+        )
+        fig.update_layout(mapbox_center={'lat': lat_center, 'lon': lon_center})
+
+    fig.update_layout(uirevision=key)
+    return fig, out_selected
 
 # ----------------------------
 # 8. Run the Dash App

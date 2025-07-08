@@ -17,7 +17,7 @@ client = genai.Client(api_key=API_KEY)
 ANALYZER_ROLE = """
 You are a traffic safety analyst. 
 
-Keep your analysis brief (aim for ~300 tokens).
+Keep your analysis brief (aim for ~200 tokens).
 
 Prioritize clarity, brevity, and practical observations.
 """

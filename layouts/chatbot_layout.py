@@ -1,6 +1,4 @@
 from dash import dcc, html
-import plotly.express as px
-import pandas as pd
 
 def load_chatbot_layout(initial_chat_history):
     return html.Div(className='app-container', children=[

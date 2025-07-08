@@ -92,7 +92,7 @@
     color: #9fbef0;
 }
 
-#close-popup-button{
+.close-popup-button{
     margin-top: 5px;
     margin-right: 5px;
     font-size: 25px;
@@ -103,7 +103,7 @@
     border: none;
     color: #e41010;
 }
-#close-popup-button:hover{
+.close-popup-button:hover{
   color: #aa0d0d;
 }
 

@@ -1,6 +1,6 @@
 import random
 from google import genai
-from google.genai import types
+from google.genai import types, chats
 import sqlite3
 import json
 import chromadb
@@ -10,7 +10,7 @@ from pydantic import BaseModel
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
-from shapely import Point
+from shapely import Point, points
 import chatbot.openstreetmap
 import geopandas as gpd
 from pydantic import BaseModel, Field
@@ -29,13 +29,6 @@ GEN_MODEL = config['models']['2.5-flash']
 
 gemini_client = genai.Client(api_key=API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMADB_PATH)
-
-# Load crash reports into dataframe
-# conn = sqlite3.connect(SQLITE_DATABASE_FILE)
-# crash_reports_df = pd.read_sql_query(sql="SELECT * FROM Crash_Reports", con=conn)
-# geometry = [Point(xy) for xy in zip(crash_reports_df['Longitude'], crash_reports_df['Latitude'])]
-# crashes_gdf = gpd.GeoDataFrame(crash_reports_df, geometry=geometry, crs="EPSG:4326")
-# conn.close()
 
 class GeminiEmbeddingFunction(EmbeddingFunction):
   def __init__(self, *args, **kwargs):
@@ -81,7 +74,7 @@ def get_sqlite_table_schema(table_name: str) -> str:
     """
     conn = sqlite3.connect(SQLITE_DATABASE_FILE)
     cursor = conn.cursor()
-    print(table_name)
+    
     try:
         if table_name.lower() == "all":
             cursor.execute("SELECT name, sql FROM sqlite_master WHERE type='table'")
@@ -256,7 +249,7 @@ def visualize_data(
         print(query)
 
         filtered_df = pd.read_sql_query(sql=query, con=conn)
-        geometry = [Point(xy) for xy in zip(filtered_df[lon], filtered_df[lat])]
+        geometry = points(filtered_df[lon], filtered_df[lat])
         crashes_gdf = gpd.GeoDataFrame(filtered_df, geometry=geometry, crs="EPSG:4326")
         
         if crashes_gdf.empty:
@@ -271,11 +264,11 @@ def visualize_data(
         else:
             return PlotlyDensityMapResult(plot_json="{}", message="Cannot plot data unless location(s) are specified")
         
-        fig = px.density_map(
+        fig = px.scatter_map(
             filtered_data,
             lat=lat,
             lon=lon,
-            radius=point_size,
+            #radius=point_size,
             center=dict(lat=sum(filtered_data[lat].tolist())/len(filtered_data[lat].tolist()), 
                         lon=sum(filtered_data[lon].tolist())/len(filtered_data[lon].tolist())),
             zoom=10,
@@ -303,6 +296,36 @@ def visualize_data(
     finally:
         conn.close()
 
+def create_new_chat_session():
+    global chat
+    print("New Chat Session Created!")
+    tool_config = types.ToolConfig(
+        function_calling_config=types.FunctionCallingConfig(
+        mode="AUTO", #allowed_function_names=["get_current_temperature"]
+        )
+    )
+    
+    chat = gemini_client.chats.create(
+        model=GEN_MODEL,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0,
+            tools=[execute_read_sqlite_query, 
+                search_chroma_documents,
+                visualize_data],
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                disable=True
+            ),
+            tool_config=tool_config
+        )
+    )
+
+    # Send resources to chat
+    sql_schema = get_sqlite_table_schema('all')
+    chat.send_message(f"Here is the schema of the SQL Database\n\n{sql_schema}")
+    collections_info = get_chroma_collections_info()
+    chat.send_message(f"Here is are all the collections in the ChromaDB Database\n\n{str(collections_info)}")
+
 system_prompt = """
 You are an interactive roadway safety chatbot designed to provide users with real-time, data-driven insights on roadway safety.
 
@@ -313,32 +336,9 @@ If the user asks for a map, visualization, or geographical representation of dat
 If the question is just for general advice and can be answered without any tools, do so.
 If the question is outside the scope of your purpose, state that.
 """
-tool_config = types.ToolConfig(
-        function_calling_config=types.FunctionCallingConfig(
-        mode="AUTO", #allowed_function_names=["get_current_temperature"]
-    )
-)
 
-chat = gemini_client.chats.create(
-    model=GEN_MODEL,
-    config=types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        temperature=0,
-        tools=[execute_read_sqlite_query, 
-               search_chroma_documents,
-               visualize_data],
-        automatic_function_calling=types.AutomaticFunctionCallingConfig(
-            disable=True
-        ),
-        tool_config=tool_config
-    )
-)
-
-# Send resources to chat
-sql_schema = get_sqlite_table_schema('all')
-chat.send_message(f"Here is the schema of the SQL Database\n\n{sql_schema}")
-collections_info = get_chroma_collections_info()
-chat.send_message(f"Here is are all the collections in the ChromaDB Database\n\n{str(collections_info)}")
+chat: chats.Chat = None
+create_new_chat_session()
 
 def get_agent_response(user_message: str) -> dict[str, any]:
 

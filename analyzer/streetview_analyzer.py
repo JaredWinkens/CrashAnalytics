@@ -50,7 +50,7 @@ def analyze_image_ai(image_bytes, crash_info):
                 A crash occured at the location in the attached image.
 
                 Here is some information about the crash: 
-                {str(crash_info)}
+                {crash_info}
                 
                 Given the picture crash information see if you can draw any insights into the influence of the surrounding infrastructure/environment.
                 """
@@ -65,7 +65,7 @@ def analyze_image_ai(image_bytes, crash_info):
     except Exception as e:
         raise e
 
-def get_street_view_image(latitude, longitude, image_size = "540x540", fov = 90, heading = 0, pitch = 0):
+def get_street_view_image(latitude, longitude, image_size = "640x640", fov = 90, heading = 0, pitch = 0):
     location = f"{latitude},{longitude}"
     # --- Construct the API URL ---
     BASE_URL = "https://maps.googleapis.com/maps/api/streetview"
@@ -92,3 +92,30 @@ def get_street_view_image(latitude, longitude, image_size = "540x540", fov = 90,
         print(f"Response content: {response.text}") # Print response content for debugging
     
     return response
+
+def get_location_name(latitude, longitude):
+    """
+    Retrieves the location name (address) from latitude and longitude using Nominatim.
+
+    Args:
+        latitude: The latitude coordinate.
+        longitude: The longitude coordinate.
+
+    Returns:
+        A string containing the location name (address) if found, or None if not found.
+    """
+    url = f"https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={latitude}&lon={longitude}&limit=1"
+    headers = {
+        'User-Agent': 'RoadSafetyChatbot/1.0 (winkenj@sunypoly.edu)' # Important: Provide a meaningful User-Agent
+    }
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+        data = response.json()
+        if 'display_name' in data:
+            return data['display_name']
+        else:
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"Error during API request: {e}")
+        return None

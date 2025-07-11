@@ -8,6 +8,20 @@ def load_heatmap_layout(available_counties,
                         county_coordinates,
                         common_controls):
     return html.Div([
+            # Header Section
+            html.Div([
+                html.Div([
+                    html.Img(src='/assets/Poly.svg', style={
+                        'height': '128px', 'float': 'left', 'margin-right': '40px', 
+                        'margin-left': '-20px', 'margin-top': '-8px'
+                    }),
+                    html.H1('Heatmap', className='app-title'),
+                    html.Img(src='/assets/NY.svg', className='ny-logo')
+                ],style={
+                    'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
+                    'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
+                }),
+            ]),
             html.Div([
                 html.Div([
                     html.Label('Adjust Heatmap Radius:', style={'font-weight': 'bold'}),

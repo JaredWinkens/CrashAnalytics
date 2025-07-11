@@ -9,11 +9,25 @@ def load_crash_analyzer_layout(available_counties,
                                common_controls):
     return html.Div(
             children=[
+                # Header Section
+                html.Div([
+                    html.Div([
+                        html.Img(src='/assets/Poly.svg', style={
+                            'height': '128px', 'float': 'left', 'margin-right': '40px', 
+                            'margin-left': '-20px', 'margin-top': '-8px'
+                        }),
+                        html.H1('Crash Analyzer', className='app-title'),
+                        html.Img(src='/assets/NY.svg', className='ny-logo')
+                    ],style={
+                        'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
+                        'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
+                    }),
+                ]),
                 html.Div(
                     children=[
                         html.Div(
                             common_controls(
-                                'tab6',
+                                'tab5',
                                 show_buttons=True,
                                 available_counties=available_counties,
                                 unique_weather=unique_weather,
@@ -25,7 +39,7 @@ def load_crash_analyzer_layout(available_counties,
                         ),
                         html.Div([
                             dcc.Graph(
-                                id='scatter_map_tab6',
+                                id='scatter_map_tab5',
                                 className='responsive-graph',
                                 figure={
                                     'data': [],
@@ -44,11 +58,11 @@ def load_crash_analyzer_layout(available_counties,
                                 config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
                             ),
                             # Hidden button for closing the popup (must exist in initial layout)
-                            html.Button(html.I(className="fa-window-close"),id="close-popup-tab6",className="close-popup-button", n_clicks=0, style={'display': 'none'}),
+                            html.Button(html.I(className="fa-window-close"),id="close-popup-tab5",className="close-popup-button", n_clicks=0, style={'display': 'none'}),
                             
                             dcc.Loading(
                                 children=[
-                                    html.Div(id='image-popup-tab6', style={
+                                    html.Div(id='image-popup-tab5', style={
                                         'position': 'fixed', # This popup will now be relative to the viewport
                                         'left': '50%',
                                         'top': '50%',
@@ -68,7 +82,7 @@ def load_crash_analyzer_layout(available_counties,
                     className='desktop-layout'
                 ),
                 html.Div(
-                    id='warning_message_tab6',
+                    id='warning_message_tab5',
                     style={'color': 'red', 'textAlign': 'center', 'margin': '10px'}
                 )
             ]

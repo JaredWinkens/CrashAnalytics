@@ -754,7 +754,7 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
                     html.Button('Download Filtered Data', id='download_button_tab1', n_clicks=0, style={'margin-top': '10px', 'display': 'block'})
                 ])
             ]
-        elif prefix == 'tab6':
+        elif prefix == 'tab5':
             controls += [
                 html.Div([
                     html.Button('Apply Filter', id=f'apply_filter_{prefix}', n_clicks=0, style={'margin-top': '30px'}),
@@ -858,28 +858,13 @@ app.layout = html.Div([
         dcc.Tab(label='Heatmap', value='tab-2'),
         dcc.Tab(label='Census Data', value='tab-3'),
         dcc.Tab(label='Predictions', value='tab-4'),
-        dcc.Tab(label='ChatBot', value='tab-5'),
-        dcc.Tab(label='Crash Analyzer', value='tab-6')
+        dcc.Tab(label='Crash Analyzer', value='tab-5'),
+        dcc.Tab(label='Safety ChatBot', value='tab-6'),
     ], style={'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'zIndex': '1000'}),
 
-    # Header Section
+    #Dynamic Content Based on Selected Tab
     html.Div([
-        html.Div([
-            html.Img(src='/assets/Poly.svg', style={
-                'height': '128px', 'float': 'left', 'margin-right': '40px', 
-                'margin-left': '-20px', 'margin-top': '-8px'
-            }),
-            html.H1('Crash Data Analytics', className='app-title'),
-            html.Img(src='/assets/NY.svg', className='ny-logo')
-        ],style={
-            'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
-            'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
-        }),
-
-        # Dynamic Content Based on Selected Tab
-        html.Div([
-            html.Div(id='tabs-content', style={'margin-top': '160px'})
-        ]),
+        html.Div(id='tabs-content', style={'margin-top': '160px'})
     ]),
 
     # Download Components
@@ -1019,11 +1004,13 @@ def render_content(tab):
     elif tab == 'tab-4':  # Predictions Tab
         return layouts.predictions_layout.load_predictions_layout(make_field_row, LABELS, STEPS, ALL_FIELDS)
     
-    elif tab == 'tab-5': # Chatbot Tab
+    elif tab == 'tab-5': # Crash Analyzer
+        return layouts.crash_analyzer_layout.load_crash_analyzer_layout(available_counties, unique_weather, unique_light, unique_road, unique_crash_types, county_coordinates, common_controls)
+    
+    elif tab == 'tab-6': # Chatbot Tab
         return layouts.chatbot_layout.load_chatbot_layout([{"sender": "bot", "message": initial_bot_message, "map": None}])
     
-    elif tab == 'tab-6': # Crash Analyzer
-        return layouts.crash_analyzer_layout.load_crash_analyzer_layout(available_counties, unique_weather, unique_light, unique_road, unique_crash_types, county_coordinates, common_controls)
+    
 
 @app.callback(
     Output('chat-history-store', 'data'),
@@ -1090,47 +1077,33 @@ def display_insight_popup(insight_button_n_clicks, close_button_n_clicks, fig_sn
     return dash.no_update, dash.no_update
 
 @app.callback(
-    Output('image-popup-tab6', 'children'),
-    Output('image-popup-tab6', 'style'),
-    Output('scatter_map_tab6', 'clickData'),
-    Input('scatter_map_tab6', 'clickData'),
-    Input('close-popup-tab6', 'n_clicks'),     
+    Output('image-popup-tab5', 'children'),
+    Output('image-popup-tab5', 'style'),
+    Output('scatter_map_tab5', 'clickData'),
+    Input('scatter_map_tab5', 'clickData'),
+    Input('close-popup-tab5', 'n_clicks'),     
     prevent_initial_call=True
 )
 def display_streetview_popup(clickData, close_button_n_clicks):
     triggered_id = ctx.triggered_id
      
     # If the close button was clicked
-    if triggered_id == 'close-popup-tab6' and close_button_n_clicks is not None:
+    if triggered_id == 'close-popup-tab5' and close_button_n_clicks is not None:
         print("Close button clicked, hiding popup.")
         return None, {'display': 'none'}, None
     
-    if triggered_id == 'scatter_map_tab6':
+    if triggered_id == 'scatter_map_tab5':
         print(f"Click data {clickData}.")    
         lon = clickData['points'][0]['lon']
         lat = clickData['points'][0]['lat']
-        print(f"Lon: {lon}, Lat: {lat}")
-        location_name = f"Lon: {lon:.4f}, Lat: {lat:.4f}"
-        if 'customdata' in clickData['points'][0]:
-            crash_info = clickData['points'][0]['customdata']
-            crash_data_dict = {
-                'Latitude': lat,
-                'Longitude': lon,
-                'CaseNumber': crash_info[0],
-                'CrashDate': crash_info[1],
-                'CrashTime': crash_info[2],
-                'WeatherCondition': crash_info[3],
-                'LightCondition': crash_info[4],
-                'RoadSurfaceCondition': crash_info[5]
-                }
-        else:
-            crash_data_dict = {
-                'Latitude': lat,
-                'Longitude': lon,
-            }
-        print(crash_data_dict)
+        crash_info = clickData['points'][0]['customdata']
+        caseNumber = crash_info[0]
+        location_name = streetview.get_location_name(lat, lon)
+
+        crash = data_final_df.query(f"Case_Number == '{caseNumber}'")
+        print(crash)
         image = streetview.get_street_view_image(lat, lon)
-        analysis = streetview.analyze_image_ai(image.content, crash_data_dict)
+        analysis = streetview.analyze_image_ai(image.content, crash.to_string())
 
         popup_style = {
             'display': 'block',
@@ -1142,13 +1115,13 @@ def display_streetview_popup(clickData, close_button_n_clicks):
             'backgroundColor': 'white',
             'border': '1px solid black',
             'padding': '10px',
-            'maxWidth': '1280px',
+            'maxWidth': '640px',
             'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
         }
         image_element = html.Div([
-            html.H1(location_name),
-            html.Button(html.I(className="fa fa-window-close"), id="close-popup-tab6",className="close-popup-button", n_clicks=0),
-            dcc.Markdown(analysis, style={'maxWidth': '540px'}),
+            html.H2(location_name),
+            html.Button(html.I(className="fa fa-window-close"), id="close-popup-tab5",className="close-popup-button", n_clicks=0),
+            dcc.Markdown(analysis, style={'maxWidth': '640px'}),
             html.Img(src=image.url, style={'maxWidth': '640px', 'maxHeight': '640px'})
         ])
         print(f"Displaying popup for {location_name}.")
@@ -1284,10 +1257,10 @@ def toggle_vru_options_tab3(main_value):
     return {'display': 'block'} if main_value == 'VRU' else {'display': 'none'}
 
 @app.callback(
-    Output('data_type_vru_options_tab6', 'style'),
-    Input('data_type_selector_main_tab6', 'value')
+    Output('data_type_vru_options_tab5', 'style'),
+    Input('data_type_selector_main_tab5', 'value')
 )
-def toggle_vru_options_tab6(main_value):
+def toggle_vru_options_tab5(main_value):
     return {'display': 'block'} if main_value == 'VRU' else {'display': 'none'}
 
 # ----------------------------
@@ -2451,34 +2424,34 @@ def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_pat
     ])
 
 # ----------------------------
-# 7.6. Callback for Crash Analyzer Tab (tab6)
+# 7.6. Callback for Crash Analyzer Tab (tab5)
 # ----------------------------
 @app.callback(
     [
-        Output('scatter_map_tab6', 'figure'),
-        Output('scatter_map_tab6', 'selectedData')
+        Output('scatter_map_tab5', 'figure'),
+        Output('scatter_map_tab5', 'selectedData')
     ],
     [
-        Input('apply_filter_tab6', 'n_clicks'),
-        Input('clear_drawing_tab6', 'n_clicks'),
+        Input('apply_filter_tab5', 'n_clicks'),
+        Input('clear_drawing_tab5', 'n_clicks'),
     ],
     [
-        State('county_selector_tab6', 'value'),
-        State('scatter_map_tab6', 'selectedData'),
-        State('date_picker_tab6', 'start_date'),
-        State('date_picker_tab6', 'end_date'),
-        State('time_slider_tab6', 'value'),
-        State('day_of_week_checklist_tab6', 'value'),
-        State('weather_selector_tab6', 'value'),
-        State('light_selector_tab6', 'value'),
-        State('road_surface_selector_tab6', 'value'),
-        State('severity_selector_tab6','value'),
-        State('data_type_selector_main_tab6', 'value'),
-        State('data_type_selector_vru_tab6', 'value'),
-        State('crash_type_selector_tab6','value')
+        State('county_selector_tab5', 'value'),
+        State('scatter_map_tab5', 'selectedData'),
+        State('date_picker_tab5', 'start_date'),
+        State('date_picker_tab5', 'end_date'),
+        State('time_slider_tab5', 'value'),
+        State('day_of_week_checklist_tab5', 'value'),
+        State('weather_selector_tab5', 'value'),
+        State('light_selector_tab5', 'value'),
+        State('road_surface_selector_tab5', 'value'),
+        State('severity_selector_tab5','value'),
+        State('data_type_selector_main_tab5', 'value'),
+        State('data_type_selector_vru_tab5', 'value'),
+        State('crash_type_selector_tab5','value')
     ]
 )
-def map_tab6(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
+def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
              start_date, end_date, time_range, days_of_week,
             weather, light, road_surface, severity_category, main_data_type, vru_data_type, crash_type):
     ctx = callback_context
@@ -2499,7 +2472,7 @@ def map_tab6(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         lat_center, lon_center = 40.7128, -74.0060
 
     # helper to set uirevision key
-    key = 'tab6-' + '-'.join(sorted(counties_selected or []))
+    key = 'tab5-' + '-'.join(sorted(counties_selected or []))
 
     # empty‐data fallback
     if df.empty:
@@ -2512,7 +2485,7 @@ def map_tab6(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         return fig, None
 
     # apply filters
-    if triggered == 'apply_filter_tab6':
+    if triggered == 'apply_filter_tab5':
         filtered = filter_data_tab1(
             df, start_date, end_date, time_range,
             days_of_week, weather, light, road_surface,  severity_category, crash_type,
@@ -2526,7 +2499,7 @@ def map_tab6(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         if crash_type and crash_type != 'All':
             df_to_plot = df_to_plot[df_to_plot['Crash_Type'] == crash_type]
 
-    elif triggered == 'clear_drawing_tab6':
+    elif triggered == 'clear_drawing_tab5':
         # reapply filters but drop box selection
         df_to_plot = filter_data_tab1(
             df, start_date, end_date, time_range,

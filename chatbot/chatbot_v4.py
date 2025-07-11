@@ -70,7 +70,12 @@ def _get_embedding(text: str):
 def get_sqlite_table_schema(table_name: str) -> str:
     """
     Provides the schema for a specified SQLite database table.
-    Use 'all' to get the schema for all tables.
+
+    Args:
+        table_name: The name of the table, use 'all' to get the schema for all tables.
+
+    Returns:
+        A string representing the schema.
     """
     conn = sqlite3.connect(SQLITE_DATABASE_FILE)
     cursor = conn.cursor()
@@ -147,12 +152,25 @@ class ChromaCollectionInfo(BaseModel):
     id: str = Field(description="The ID of the ChromaDB collection.")
     count: int = Field(description="The number of items in the collection.")
 
-def get_chroma_collections_info() -> List[ChromaCollectionInfo]:
-    """Provides information about all available ChromaDB collections."""
+def get_chroma_collection_info(collection_name: str) -> List[ChromaCollectionInfo]:
+    """
+    Provides information about a ChromaDB collection.
+    
+    Args:
+        collection_name: The name of the collection, use 'all' to get the info for all collections.
+
+    Returns:
+        A list of ChromaCollectionInfo objects containing the name, id, 
+        and number of items in the collection.
+    """
     if chroma_client is None:
         return []
-    collections = chroma_client.list_collections()
-    return [ChromaCollectionInfo(name=c.name, id=str(c.id), count=c.count()) for c in collections]
+    if collection_name.lower() == 'all':
+        collections = chroma_client.list_collections()
+        return [ChromaCollectionInfo(name=c.name, id=str(c.id), count=c.count()) for c in collections]
+    else:
+        c = chroma_client.get_collection(name=collection_name)
+        return [ChromaCollectionInfo(name=c.name, id=str(c.id), count=c.count)]
 
 class ChromaQueryResult(BaseModel):
     """Represents a result from a ChromaDB query."""
@@ -210,8 +228,8 @@ def search_chroma_documents(
         return [ChromaQueryResult(id="error", document=f"Error performing ChromaDB search: {e}", distance=0.0)]
 
 class PlotlyDensityMapResult(BaseModel):
-    """Represents the result of a Plotly density map visualization, as a JSON string."""
-    plot_json: str = Field(description="A JSON string representing the Plotly figure.")
+    """Represents the result of a Plotly map visualization, as a JSON string."""
+    #plot: bytes = Field(description="An image of the plot in bytes")
     message: str = Field(description="A descriptive message about the plot generation.")
 
 def visualize_data(
@@ -229,7 +247,7 @@ def visualize_data(
     Args:
         table_name: The SQL table to query
         select_columns: A list of columns to select, by default always select 'Latitude', 'Longitude', & 'CaseNumber'
-        locations_list: A list of locations for filering e.g. ['Buffalo', 'Houghton, NY', '9825 Seymour Street']
+        locations_list: A list of locations for filering e.g. ['Buffalo', '9825 Seymour Street, Houghton, NY', 'Utica, NY']
         filter_query: Any other non-location filters that need to be applied to the query e.g. 'CrashType' = 'COLLISION WITH PEDESTRIAN'
         plot_title: The title of the density map.
         point_size: The radius of the density points in the map.
@@ -253,7 +271,9 @@ def visualize_data(
         crashes_gdf = gpd.GeoDataFrame(filtered_df, geometry=geometry, crs="EPSG:4326")
         
         if crashes_gdf.empty:
-            return PlotlyDensityMapResult(plot_json="{}", message="No data found for plotting.")
+            return PlotlyDensityMapResult(
+                #plot_json="{}",
+                message="No data found for plotting.")
         
         if locations_list:
             dataframes = []
@@ -262,7 +282,9 @@ def visualize_data(
                 dataframes.append(chatbot.openstreetmap.get_filtered_data(crashes_gdf, location))
             filtered_data = pd.concat(dataframes, ignore_index=True)
         else:
-            return PlotlyDensityMapResult(plot_json="{}", message="Cannot plot data unless location(s) are specified")
+            return PlotlyDensityMapResult(
+                #plot_json="{}", 
+                message="Cannot plot data unless location(s) are specified")
         
         fig = px.scatter_map(
             filtered_data,
@@ -278,19 +300,22 @@ def visualize_data(
         )
         
         plot_json = fig.to_json()
+        global vis_data
+        vis_data = pio.from_json(plot_json)
+        #image_bytes = pio.to_image(fig=vis_data, format='png', scale=1, width=1920, height=1080)
         
         return PlotlyDensityMapResult(
-            plot_json=plot_json,
+            #plot=image_bytes,
             message=f"Successfully generated a Plotly density map titled '{plot_title}'."
         )
     except sqlite3.Error as e:
         return PlotlyDensityMapResult(
-            plot_json="{}",
+            #plot=None,
             message=f"Error retrieving data for plot: {e}"
         )
     except Exception as e:
         return PlotlyDensityMapResult(
-            plot_json="{}",
+            #plot=None,
             message=f"Error generating Plotly density map: {e}"
         )
     finally:
@@ -299,32 +324,29 @@ def visualize_data(
 def create_new_chat_session():
     global chat
     print("New Chat Session Created!")
-    tool_config = types.ToolConfig(
-        function_calling_config=types.FunctionCallingConfig(
-        mode="AUTO", #allowed_function_names=["get_current_temperature"]
-        )
-    )
     
     chat = gemini_client.chats.create(
         model=GEN_MODEL,
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0,
-            tools=[execute_read_sqlite_query, 
+            tools=[
+                get_sqlite_table_schema,
+                execute_read_sqlite_query,
+                get_chroma_collection_info, 
                 search_chroma_documents,
-                visualize_data],
+                visualize_data
+                ],
             automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                disable=True
+                disable=False
             ),
-            tool_config=tool_config
+            tool_config=types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                mode="AUTO", #allowed_function_names=["get_current_temperature"]
+                )
+            )
         )
     )
-
-    # Send resources to chat
-    sql_schema = get_sqlite_table_schema('all')
-    chat.send_message(f"Here is the schema of the SQL Database\n\n{sql_schema}")
-    collections_info = get_chroma_collections_info()
-    chat.send_message(f"Here is are all the collections in the ChromaDB Database\n\n{str(collections_info)}")
 
 system_prompt = """
 You are an interactive roadway safety chatbot designed to provide users with real-time, data-driven insights on roadway safety.
@@ -334,66 +356,28 @@ If a precise count, sum, average, or specific filtered data from the database is
 If a general description, summary, or narrative insight is needed, use the `search_chroma_documents` tool.
 If the user asks for a map, visualization, or geographical representation of data, use the `visualize_data` tool.
 If the question is just for general advice and can be answered without any tools, do so.
+If the question falls under mutliple categories, use a combination of the tools above.
 If the question is outside the scope of your purpose, state that.
 """
 
+vis_data = None
 chat: chats.Chat = None
 create_new_chat_session()
 
 def get_agent_response(user_message: str) -> dict[str, any]:
 
     bot_response_text = ""
-    visualization_data = None
-
-    
-    response = chat.send_message(user_message)
+    global vis_data
+    vis_data = None # Clear previous visulization
 
     try:
-        if response.candidates and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                if part.function_call:
-                    tool_call = part.function_call
-                    tool_name = tool_call.name
-                    tool_args = tool_call.args
-
-                    print(f"Gemini decided to call tool: {tool_name} with arguments: {tool_args}")
-
-                    # Execute the tool based on Gemini's request
-                    if tool_name == "execute_read_sqlite_query":
-                        tool_result: SQLiteQueryResult = execute_read_sqlite_query(**tool_args)
-                        print(f"SQL Tool Result:\n{str(tool_result)}")
-                    
-                    elif tool_name == "search_chroma_documents":
-                        tool_result: List[ChromaQueryResult] = search_chroma_documents(**tool_args)
-                        print(f"RAG Tool Result:\n{str(tool_result)}")
-
-                    elif tool_name == "visualize_data":
-                        tool_result: PlotlyDensityMapResult = visualize_data(**tool_args)
-                        print(f"VIS Tool Result:")
-                        #fig = json.loads(tool_result.plot_json)
-                        visualization_data = pio.from_json(tool_result.plot_json)
-                        bot_response_text = tool_result.message
-                        break
-                    
-                    else:
-                        tool_result = f"Unknown tool requested by Gemini: {tool_name}"
-                    
-                    # if tool_name != "visualize_map_data":
-                    #     chat.send_message(str(tool_result))
-
-                    follow_up_response = chat.send_message(f"Tool output for {tool_name}:\n{str(tool_result)}")
-                    if follow_up_response.candidates and follow_up_response.candidates[0].content.parts:
-                        for follow_up_part in follow_up_response.candidates[0].content.parts:
-                            if follow_up_part.text:
-                                bot_response_text += "\n" + follow_up_part.text
-                elif part.text:
-                    bot_response_text += part.text
-        else:
-            bot_response_text = "Gemini did not provide a text response or tool call."
+        response = chat.send_message(user_message)
+        bot_response_text = response.text
 
     except Exception as e:
         bot_response_text = f"An error occurred during interaction: {e}"
         print(f"Error in get_agent_response: {e}")
+    
+    return {"text": bot_response_text, "visualization_data": vis_data}
 
-    return {"text": bot_response_text, "visualization_data": visualization_data}
 

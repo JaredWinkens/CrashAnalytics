@@ -34,7 +34,7 @@ def format_response(response: Insight) -> str:
     - **Inferred Causes:** {response.inferred_causes}\n\n
     """
 
-def generate_response(image, prompt="Analyze the provided crash density heatmap.") -> str:
+def generate_response(image: bytes, prompt: str ="Analyze the provided crash density heatmap.") -> str:
     try:
         response = client.models.generate_content(
             model=GEN_MODEL,

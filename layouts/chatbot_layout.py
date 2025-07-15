@@ -1,4 +1,5 @@
 from dash import dcc, html
+import dash_bootstrap_components as dbc
 
 def load_chatbot_layout(initial_chat_history):
     return html.Div(className='app-container', children=[
@@ -24,9 +25,6 @@ def load_chatbot_layout(initial_chat_history):
                     # The 'chat-end-marker' will always be the last element
                 ]
             ),
-            html.Div(id='loading-output', children=[
-                dcc.Loading(id="loading-spinner", type="circle", children=html.Div(id="loading-div")),
-            ], style={'textAlign': 'center', 'marginBottom': '15px'}),
         ]),
 
         # Input area FIXED at the bottom of the viewport
@@ -79,22 +77,33 @@ def render_user_message_bubble(message_content):
     ])
     
 
-def render_bot_message_bubble(message_content, fig):
-    if fig == None:
+def render_bot_message_bubble(message_content, fig, loading):
+    if loading:
         return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
             html.Div(className='message-bubble bot-bubble', children=[
                 html.I(className="fas fa-robot sender-icon bot-sender-icon"),
-                html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
-                dcc.Markdown(message_content, className='message-content'),
-                
+                #html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
+                dcc.Markdown("", className='message-content'),
+                html.Img(id='bot-loading-gif', src='assets/Loading-Dots-Blue-Cropped.gif')
             ])
         ])
-    elif fig != None:        
-        return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
-            html.Div(className='message-bubble bot-bubble', children=[
-                html.I(className="fas fa-robot sender-icon bot-sender-icon"),
-                html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
-                dcc.Markdown(message_content, className='message-content'),
-                dcc.Graph(id='crash-map', figure=fig)
+    
+    else:
+        if fig == None:
+            return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
+                html.Div(className='message-bubble bot-bubble', children=[
+                    html.I(className="fas fa-robot sender-icon bot-sender-icon"),
+                    html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
+                    dcc.Markdown(message_content, className='message-content'),
+                    
+                ])
             ])
-        ])
+        elif fig != None:        
+            return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
+                html.Div(className='message-bubble bot-bubble', children=[
+                    html.I(className="fas fa-robot sender-icon bot-sender-icon"),
+                    html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
+                    dcc.Markdown(message_content, className='message-content'),
+                    dcc.Graph(id='crash-map', figure=fig)
+                ])
+            ])

@@ -16,6 +16,8 @@ import geopandas as gpd
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import plotly.io as pio
+import analyzer.map_analyzer as mapanalyzer
+from enum import Enum
 
 # load config settings
 config_file = open("config.json", "r")
@@ -39,7 +41,7 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
         model=EMBEDDING_MODEL,
         contents=input,
         config=types.EmbedContentConfig(
-          task_type="retrieval_document",
+          task_type="retrieval_query",
         )
     )
 
@@ -59,7 +61,7 @@ def _get_embedding(text: str):
                     model=EMBEDDING_MODEL,
                     contents=text,
                     config=types.EmbedContentConfig(
-                    task_type="retrieval_document",
+                    task_type="retrieval_query",
                     )
                 )
             return response.embeddings[0].values
@@ -227,9 +229,44 @@ def search_chroma_documents(
     except Exception as e:
         return [ChromaQueryResult(id="error", document=f"Error performing ChromaDB search: {e}", distance=0.0)]
 
-class PlotlyDensityMapResult(BaseModel):
+def create_map(map_type: str, data: gpd.GeoDataFrame, lat, lon, hover_name, hover_data):
+
+    if map_type == "scatter_map":
+        fig = px.scatter_map(
+                data,
+                lat=lat,
+                lon=lon,
+                center=dict(lat=sum(data[lat].tolist())/len(data[lat].tolist()), 
+                            lon=sum(data[lon].tolist())/len(data[lon].tolist())),
+                zoom=10,
+                hover_name=hover_name,
+                hover_data=hover_data,
+                map_style="open-street-map",
+                #title=plot_title
+            )
+        return fig
+    elif map_type == "density_map":
+        fig = px.density_map(
+                data,
+                lat=lat,
+                lon=lon,
+                radius=2,
+                center=dict(lat=sum(data[lat].tolist())/len(data[lat].tolist()), 
+                            lon=sum(data[lon].tolist())/len(data[lon].tolist())),
+                zoom=10,
+                hover_name=hover_name,
+                hover_data=hover_data,
+                map_style="open-street-map",
+                #title=plot_title
+            )
+        return fig
+    else:
+        return None
+
+
+class PlotlyMapResult(BaseModel):
     """Represents the result of a Plotly map visualization, as a JSON string."""
-    #plot: bytes = Field(description="An image of the plot in bytes")
+    analysis: str = Field(description="An analysis of the map")
     message: str = Field(description="A descriptive message about the plot generation.")
 
 def visualize_data(
@@ -238,25 +275,26 @@ def visualize_data(
     locations_list: List[str] = [],
     filter_query: str = "",
     plot_title: str = "Generated Plot",
-    point_size: int = 1
-) -> PlotlyDensityMapResult:
-    """Generates a Plotly density map (heatmap) by querying data from a database. Use this tool when the user explicitly requests a map, 
+    map_type: str = "scatter_map"
+) -> PlotlyMapResult:
+    """Generates a Plotly scatter map by querying data from a database. Use this tool when the user explicitly requests a map, 
     geographical visualization, or a spatial representation of data related to roadway safety. It is ideal for showing incident locations, 
     accident hotspots, or the distribution of various safety metrics across an area.
 
     Args:
         table_name: The SQL table to query
-        select_columns: A list of columns to select, by default always select 'Latitude', 'Longitude', & 'CaseNumber'
-        locations_list: A list of locations for filering e.g. ['Buffalo', '9825 Seymour Street, Houghton, NY', 'Utica, NY']
-        filter_query: Any other non-location filters that need to be applied to the query e.g. 'CrashType' = 'COLLISION WITH PEDESTRIAN'
+        select_columns: A list of columns to select, by default always select at least 'Latitude', 'Longitude', & 'CaseNumber'.
+        locations_list: A list of locations for filering e.g. ['Buffalo', '9825 Seymour Street, Houghton, NY', 'Utica, NY'].
+        filter_query: Any other non-location filters that need to be applied to the query e.g. 'CrashType' = 'COLLISION WITH PEDESTRIAN'. 
+        DO NOT include any location related filters such as county, city, town, street, etc.
         plot_title: The title of the density map.
-        point_size: The radius of the density points in the map.
+        map_type: The type of map to generate e.g. `scatter_map` or `density_map`, the default is scatter_map.
 
     Returns:
-        A PlotlyDensityMapResult object containing the JSON representation of the plot and a status message.
+        A PlotlyMapResult object containing the JSON representation of the plot and a status message.
     """
     conn = sqlite3.connect(SQLITE_DATABASE_FILE)
-
+    print("MAP TYPE: ", map_type)
     try:
         lat = select_columns[0]
         lon = select_columns[1]
@@ -264,15 +302,14 @@ def visualize_data(
 
         where_clause = f"WHERE {filter_query}" if filter_query else ""
         query = f"SELECT {', '.join(select_columns)} FROM {table_name} {where_clause}"
-        print(query)
 
         filtered_df = pd.read_sql_query(sql=query, con=conn)
         geometry = points(filtered_df[lon], filtered_df[lat])
         crashes_gdf = gpd.GeoDataFrame(filtered_df, geometry=geometry, crs="EPSG:4326")
         
         if crashes_gdf.empty:
-            return PlotlyDensityMapResult(
-                #plot_json="{}",
+            return PlotlyMapResult(
+                analysis="",
                 message="No data found for plotting.")
         
         if locations_list:
@@ -282,41 +319,31 @@ def visualize_data(
                 dataframes.append(chatbot.openstreetmap.get_filtered_data(crashes_gdf, location))
             filtered_data = pd.concat(dataframes, ignore_index=True)
         else:
-            return PlotlyDensityMapResult(
-                #plot_json="{}", 
+            return PlotlyMapResult(
+                analysis="", 
                 message="Cannot plot data unless location(s) are specified")
         
-        fig = px.scatter_map(
-            filtered_data,
-            lat=lat,
-            lon=lon,
-            #radius=point_size,
-            center=dict(lat=sum(filtered_data[lat].tolist())/len(filtered_data[lat].tolist()), 
-                        lon=sum(filtered_data[lon].tolist())/len(filtered_data[lon].tolist())),
-            zoom=10,
-            hover_name=caseNum,
-            map_style="open-street-map",
-            #title=plot_title
-        )
+        fig = create_map(map_type=map_type,data=filtered_data, lat=lat, lon=lon, hover_name=caseNum, hover_data=select_columns)
         
         plot_json = fig.to_json()
         global vis_data
         vis_data = pio.from_json(plot_json)
-        #image_bytes = pio.to_image(fig=vis_data, format='png', scale=1, width=1920, height=1080)
+        image_bytes = pio.to_image(fig=vis_data, format='png', scale=1, width=1920, height=1080)
+        insights = mapanalyzer.generate_response(image=image_bytes, prompt="Analyze the provided map, keep it brief ~100 tokens")
         
-        return PlotlyDensityMapResult(
-            #plot=image_bytes,
-            message=f"Successfully generated a Plotly density map titled '{plot_title}'."
+        return PlotlyMapResult(
+            analysis=insights,
+            message=f"Successfully generated a Plotly map titled '{plot_title}'."
         )
     except sqlite3.Error as e:
-        return PlotlyDensityMapResult(
-            #plot=None,
+        return PlotlyMapResult(
+            analysis="",
             message=f"Error retrieving data for plot: {e}"
         )
     except Exception as e:
-        return PlotlyDensityMapResult(
-            #plot=None,
-            message=f"Error generating Plotly density map: {e}"
+        return PlotlyMapResult(
+            analysis="",
+            message=f"Error generating Plotly map: {e}"
         )
     finally:
         conn.close()

@@ -4,6 +4,7 @@ import pandas as pd
 import sqlite3
 import json
 import chromadb
+from chromadb import Documents, EmbeddingFunction, Embeddings
 from chromadb.utils import embedding_functions
 from tqdm.auto import tqdm
 from google import genai
@@ -23,6 +24,21 @@ GEN_MODEL = config['models']['1.5-flash']
 
 gemini_client = genai.Client(api_key=API_KEY)
 chroma_client = chromadb.PersistentClient(path=CHROMADB_PATH)
+
+class GeminiEmbeddingFunction(EmbeddingFunction):
+  def __init__(self, *args, **kwargs):
+      super().__init__(*args, **kwargs)
+
+  def __call__(self, input: Documents) -> Embeddings:
+    response = gemini_client.models.embed_content(
+        model=EMBEDDING_MODEL,
+        contents=input,
+        config=types.EmbedContentConfig(
+          task_type="retrieval_document",
+        )
+    )
+
+    return response.embeddings[0].values
 
 def create_sql_table(df: pd.DataFrame, table_name: str):
     conn = sqlite3.connect(DB_FILE)
@@ -180,7 +196,7 @@ def main():
 
     file = open(DATASET_CONFIG_PATH, "r")
     data_sources = json.load(file)
-    sample_size = 100
+    sample_size = 1500
     # Process datasources
     for source in data_sources:
         name = source['name']
@@ -193,7 +209,7 @@ def main():
         # Create SQL table from dataframe
         create_sql_table(data, name)
         # Create Chroma collection from dataframe
-        #create_chroma_collection(data_sampled, name, desc, meta)
+        create_chroma_collection(data_sampled, name, desc, meta)
 
 
 if __name__ == "__main__":

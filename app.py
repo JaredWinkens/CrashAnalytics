@@ -1,6 +1,7 @@
 import base64
 import dash
 from dash import Dash, DiskcacheManager, dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL
+import dash_bootstrap_components as dbc
 import datetime
 import diskcache
 import plotly.express as px
@@ -1008,7 +1009,7 @@ def render_content(tab):
         return layouts.crash_analyzer_layout.load_crash_analyzer_layout(available_counties, unique_weather, unique_light, unique_road, unique_crash_types, county_coordinates, common_controls)
     
     elif tab == 'tab-6': # Chatbot Tab
-        return layouts.chatbot_layout.load_chatbot_layout([{"sender": "bot", "message": initial_bot_message, "map": None}])
+        return layouts.chatbot_layout.load_chatbot_layout([{"sender": "bot", "message": initial_bot_message, "map": None, "loading": False}])
     
     
 
@@ -1153,7 +1154,7 @@ def handle_user_input(send_button_clicks, n_submits, user_question, current_chat
     current_chat_data.append(msg)
 
     # Append temporary loading message
-    loading_msg = {"sender": "bot", "message": "Thinking...", "map": None}
+    loading_msg = {"sender": "bot", "message": "Thinking...", "map": None, "loading": True}
     current_chat_data.append(loading_msg)
 
     new_scroll_trigger = current_scroll_trigger + 1
@@ -1190,7 +1191,7 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
     # Remove loading message
     current_chat_data.pop()
 
-    msg = {"sender": "bot", "message": bot_response_text, "map": fig}
+    msg = {"sender": "bot", "message": bot_response_text, "map": fig, "loading": False}
     current_chat_data.append(msg)
     new_scroll_trigger = current_scroll_trigger + 1
 
@@ -1213,7 +1214,7 @@ def update_chat_display(stored_chat_data):
         if msg['sender'] == "user":
             rendered_history_elements.append(layouts.chatbot_layout.render_user_message_bubble(msg['message']))
         elif msg['sender'] == "bot":
-            rendered_history_elements.append(layouts.chatbot_layout.render_bot_message_bubble(msg['message'], msg['map']))
+            rendered_history_elements.append(layouts.chatbot_layout.render_bot_message_bubble(msg['message'], msg['map'], msg['loading']))
     rendered_history_elements.append(html.Div(id='chat-end-marker'))
     return rendered_history_elements, stored_chat_data, 0
 

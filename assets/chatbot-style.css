@@ -271,6 +271,11 @@
     background-color: rgba(0, 0, 0, 0.3);
 }
 
+#bot-loading-gif {
+    width: 100%;
+    height: auto;
+}
+
 /* Media query for larger screens (e.g., tablets and desktops) */
 @media (min-width: 768px) {
     .main-content-wrapper {

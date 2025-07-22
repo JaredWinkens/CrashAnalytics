@@ -93,7 +93,7 @@ def render_bot_message_bubble(message_content, fig, loading):
             return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
                 html.Div(className='message-bubble bot-bubble', children=[
                     html.I(className="fas fa-robot sender-icon bot-sender-icon"),
-                    html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
+                    html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2024", id='info-button'),
                     dcc.Markdown(message_content, className='message-content'),
                     
                 ])
@@ -102,7 +102,7 @@ def render_bot_message_bubble(message_content, fig, loading):
             return html.Div(className='message-bubble-wrapper bot-bubble-wrapper', children=[
                 html.Div(className='message-bubble bot-bubble', children=[
                     html.I(className="fas fa-robot sender-icon bot-sender-icon"),
-                    html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2023", id='info-button'),
+                    html.I(className="fa fa-info-circle", title ="Data is only available from 2020-2024", id='info-button'),
                     dcc.Markdown(message_content, className='message-content'),
                     dcc.Graph(id='crash-map', figure=fig)
                 ])

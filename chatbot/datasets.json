@@ -1,6 +1,6 @@
 [
     {
-        "path": "./data/Data_Final.csv",
+        "path": "./data/Data_Final_2024.csv",
         "name": "Crash_Reports",
         "description": "This dataset is a comprehensive collection of crash reports",
         "date_columns": ["CrashDate", "DMVInsertDate"],

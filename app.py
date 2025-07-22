@@ -16,6 +16,8 @@ from dash.exceptions import PreventUpdate
 from shapely import wkt  
 from shapely.geometry import mapping  
 import geopandas as gpd 
+import shapely.geometry
+import numpy as np
 import math
 import json
 import subprocess
@@ -23,11 +25,13 @@ import analyzer.map_analyzer as map_analyzer
 import analyzer.streetview_analyzer as streetview
 import chatbot.chatbot_v4 as chatbotv4
 import layouts.census_data_layout
+import layouts.crash_rate_layout
 import layouts.data_download_layout
 import layouts.heatmap_layout
 import layouts.chatbot_layout
 import layouts.crash_analyzer_layout
 import layouts.predictions_layout
+import AADT.main
 
 ALL_FIELDS = [
     ("DEMOGIDX_5",     "Demographic Index (5-yr ACS)",        0.01),
@@ -595,7 +599,7 @@ def filter_data_tab1(df, start_date, end_date, time_range, days_of_week,
 # 5. Define UI Components
 # ----------------------------
 
-def common_controls(prefix, show_buttons, available_counties, unique_weather, unique_light, unique_road , unique_crash_types):
+def common_controls(prefix, show_buttons, available_counties, unique_weather, unique_light, unique_road , unique_crash_types, min_date=None, max_date=None):
     controls = [
         html.Div([
             html.Label('County:'),
@@ -657,6 +661,8 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
             id=f'date_picker_{prefix}',
             start_date='2020-01-01',
             end_date='2023-12-31',
+            min_date_allowed=min_date,
+            max_date_allowed=max_date,
             display_format='YYYY-MM-DD',
             start_date_placeholder_text='Select a start date',
             style={
@@ -665,7 +671,9 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
                 'font-size': '12px',
                 'padding': '2px',
                 'display': 'inline-block',
-                'margin-top': '5px'
+                'margin-top': '5px',
+                'margin-bottom': '10px',
+                'zIndex': '100'
             }
         ),
         html.Label('Time Range (Hour):', style={'margin-top': '20px'}),
@@ -760,6 +768,13 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
                 html.Div([
                     html.Button('Apply Filter', id=f'apply_filter_{prefix}', n_clicks=0, style={'margin-top': '30px'}),
                     html.Button('Clear Drawing', id=f'clear_drawing_{prefix}', n_clicks=0, style={'margin-top': '10px', 'margin-left': '10px'}),
+                ])
+            ]
+        elif prefix == 'tab7':
+            controls += [
+                html.Div([
+                    html.Button('Apply Filter', id=f'apply_filter_{prefix}', n_clicks=0, style={'margin-top': '30px'}),
+                    html.Button('Export to Shapefile', id=f'export_shapefile_{prefix}', n_clicks=0, style={'margin-top': '10px', 'margin-left': '10px'}),
                 ])
             ]
         else:
@@ -861,6 +876,7 @@ app.layout = html.Div([
         dcc.Tab(label='Predictions', value='tab-4'),
         dcc.Tab(label='Crash Analyzer', value='tab-5'),
         dcc.Tab(label='Safety ChatBot', value='tab-6'),
+        dcc.Tab(label='Crash Rate', value='tab-7')
     ], style={'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'zIndex': '1000'}),
 
     #Dynamic Content Based on Selected Tab
@@ -870,7 +886,8 @@ app.layout = html.Div([
 
     # Download Components
     dcc.Download(id='download_data'),
-    dcc.Download(id='download_data_tab3'),   
+    dcc.Download(id='download_data_tab3'),
+    dcc.Download(id='download_data_tab7'),   
     
     dcc.Store(id='editable_gpkg_path'),
     dcc.Store(id='selected_census_tract'),
@@ -985,6 +1002,9 @@ def get_county_data(counties_selected):
 @app.callback(Output('tabs-content', 'children'), Input('tabs', 'value'))
 def render_content(tab):
     available_counties = list(county_coordinates.keys())
+    available_func_classes = AADT.main.get_unique_col_values('AADT_Stats_2023_Table_Functional_Class')
+    min_date = data_final_df['Crash_Date'].min()
+    max_date = data_final_df['Crash_Date'].max()
     initial_bot_message = "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
             "**Example Prompts**\n\n" \
             "- What are the top 5 cities with the most crashes in 2021, showing counts?\n\n" \
@@ -1010,6 +1030,9 @@ def render_content(tab):
     
     elif tab == 'tab-6': # Chatbot Tab
         return layouts.chatbot_layout.load_chatbot_layout([{"sender": "bot", "message": initial_bot_message, "map": None, "loading": False}])
+    
+    elif tab == 'tab-7': # Chatbot Tab
+        return layouts.crash_rate_layout.load_crash_rate_layout(available_counties, available_func_classes, county_coordinates, unique_weather, unique_light, unique_road, unique_crash_types, min_date, max_date, common_controls)
     
     
 
@@ -1264,6 +1287,43 @@ def toggle_vru_options_tab3(main_value):
 def toggle_vru_options_tab5(main_value):
     return {'display': 'block'} if main_value == 'VRU' else {'display': 'none'}
 
+@app.callback(
+    Output('data_type_vru_options_tab7', 'style'),
+    Input('data_type_selector_main_tab7', 'value')
+)
+def toggle_vru_options_tab7(main_value):
+    return {'display': 'block'} if main_value == 'VRU' else {'display': 'none'}
+
+@app.callback(
+    Output('formula-button-icon', 'title'),
+    Input('analysis_selector_tab7', 'value')
+)
+def update_formula_btn_info(analysis_type):
+    if analysis_type == 'Segment':
+        return """Segment Crash Rate Formula:
+
+        Rseg = C x 10^6 / AADT x 365 x T x L
+
+    Where:
+        Rseg = Segment Crash Rate per million vehicle miles of travel
+        C = Crashes during analysis period
+        AADT = Annual Average Daily Traffic (veh./day)
+        T = Study Period (yrs.)
+        L = Length of the Segment (mi)
+        """
+    elif analysis_type == 'Intersection':
+        return """Intersection Crash Rate Formula:
+
+        Rint = C x 10^6 / DEV x 365 x T
+
+    Where:
+        Rint = Intersection crash rate (per million entering vehicles)
+        C = Crashes during analysis period
+        DEV = Daily Entering Volume (veh./day)
+        T = Study Period (yrs.)
+        """
+    else:
+        return ""
 # ----------------------------
 # 7.1. Callback for Data Downloader Tab (tab1)
 # ----------------------------
@@ -1481,13 +1541,15 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         State('weather_selector_tab1', 'value'),
         State('light_selector_tab1', 'value'),
         State('road_surface_selector_tab1', 'value'),
+        State('severity_selector_tab1','value'),
         State('data_type_selector_main_tab1', 'value'),
         State('data_type_selector_vru_tab1', 'value'),
+        State('crash_type_selector_tab1','value'),
         State('scatter_map', 'selectedData')
     ]
 )
 def download_filtered_data_tab1(n_clicks, counties_selected, start_date, end_date, time_range, days_of_week,
-                                weather, light, road_surface, main_data_type, vru_data_type, selected_data):
+                                weather, light, road_surface, severity_category, main_data_type, vru_data_type, crash_type, selected_data):
     if n_clicks > 0:
         try:
             # Load full data for the selected counties.
@@ -1499,7 +1561,7 @@ def download_filtered_data_tab1(n_clicks, counties_selected, start_date, end_dat
             # Apply the same filters as in update_map_tab1.
             filtered_df = filter_data_tab1(
                 df, start_date, end_date, time_range,
-                days_of_week, weather, light, road_surface,
+                days_of_week, weather, light, road_surface, severity_category, crash_type,
                 main_data_type, vru_data_type
             )
 
@@ -2543,6 +2605,206 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
     return fig, out_selected
 
 # ----------------------------
+# 7.6. Callback for Crash Analyzer Tab (tab7)
+# ----------------------------
+@app.callback(
+    [
+        Output('scatter_map_tab7', 'figure'),
+        Output('scatter_map_tab7', 'selectedData')
+    ],
+    [
+        Input('apply_filter_tab7', 'n_clicks'),
+    ],
+    [
+        State('scatter_map_tab7', 'selectedData'),
+        State('select_functional_class_tab7', 'value'),
+        State('county_selector_tab7', 'value'),
+        State('date_picker_tab7', 'start_date'),
+        State('date_picker_tab7', 'end_date'),
+        State('time_slider_tab7', 'value'),
+        State('day_of_week_checklist_tab7', 'value'),
+        State('weather_selector_tab7', 'value'),
+        State('light_selector_tab7', 'value'),
+        State('road_surface_selector_tab7', 'value'),
+        State('severity_selector_tab7','value'),
+        State('data_type_selector_main_tab7', 'value'),
+        State('data_type_selector_vru_tab7', 'value'),
+        State('crash_type_selector_tab7','value'),
+        State('analysis_selector_tab7', 'value')
+    ]
+)
+def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_selected,
+            start_date, end_date, time_range, days_of_week, weather, light, road_surface, severity_category, 
+            main_data_type, vru_data_type, crash_type, analysis_type):
+    ctx = callback_context
+    triggered = (
+        ctx.triggered[0]['prop_id'].split('.')[0]
+        if ctx.triggered else 'initial_load'
+    )
+    logger.debug(f"Triggered Input: {triggered}")
+
+    # load data
+    df = get_county_data(counties_selected)
+
+    # compute default center
+    if isinstance(counties_selected, list) and counties_selected and 'All' not in counties_selected:
+        lat_center = sum(county_coordinates[c]['lat'] for c in counties_selected) / len(counties_selected)
+        lon_center = sum(county_coordinates[c]['lon'] for c in counties_selected) / len(counties_selected)
+    else:
+        lat_center, lon_center = 40.7128, -74.0060
+
+    # helper to set uirevision key
+    key = 'tab7-' + '-'.join(sorted(counties_selected or []))
+
+    # empty‐data fallback
+    if df.empty:
+        fig = go.Figure()
+
+        fig.add_trace(go.Scattermap(
+            mode="markers",
+            lon=[lon_center],
+            lat=[lat_center],
+            marker=dict(
+                size=10,
+                color='red', # Highlight crashes on lines in red
+                opacity=0.9,
+                symbol='circle'
+            ),
+            name="GeoDataFrame Lines"
+        ))
+        fig.update_layout(
+            mapbox_style="open-street-map",
+            mapbox_zoom=7, # Adjust as needed
+            margin={"r":0,"t":0,"l":0,"b":0},
+            title="MultiLineStrings from GeoDataFrame"
+        )
+        fig.update_layout(uirevision=key)
+        return fig, None
+    print(analysis_type)
+    # apply filters
+    if triggered == 'apply_filter_tab7':
+        filtered_crashes = filter_data_tab1(
+            df, start_date, end_date, time_range,
+            days_of_week, weather, light, road_surface,  severity_category, crash_type,
+            main_data_type, vru_data_type, 
+        )
+        
+        format_string = "%Y-%m-%d"
+        min_year = datetime.datetime.strptime(start_date, format_string).year
+        max_year = datetime.datetime.strptime(end_date, format_string).year
+        selected_years = list(range(min_year, max_year + 1))
+        study_period = len(selected_years)
+
+        if analysis_type == "Segment":
+            fig, data = AADT.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_crashes)
+        elif analysis_type == "Intersection":
+            fig, data = AADT.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_crashes)
+        out_selected = selected_data
+    else:  # initial_load
+        fig = go.Figure()
+
+        fig.add_trace(go.Scattermap(
+            mode="markers",
+            lon=[lon_center],
+            lat=[lat_center],
+            marker=dict(
+                size=10,
+                color='red', # Highlight crashes on lines in red
+                opacity=0.9,
+                symbol='circle'
+            ),
+            name="GeoDataFrame Lines"
+        ))
+        fig.update_layout(
+            mapbox_style="open-street-map",
+            mapbox_zoom=7, # Adjust as needed
+            margin={"r":0,"t":0,"l":0,"b":0},
+            title="MultiLineStrings from GeoDataFrame"
+        )
+        fig.update_layout(uirevision=key)
+        return fig, None   
+
+    fig.update_layout(uirevision=key)
+    return fig, out_selected
+# Callback to Download Filtered Data in Data Downloader Tab (tab1)
+@app.callback(
+    Output('download_data_tab7', 'data'),
+    [
+        Input('export_shapefile_tab7', 'n_clicks')
+    ],
+    [
+        State('scatter_map_tab7', 'selectedData'),
+        State('select_functional_class_tab7', 'value'),
+        State('county_selector_tab7', 'value'),
+        State('date_picker_tab7', 'start_date'),
+        State('date_picker_tab7', 'end_date'),
+        State('time_slider_tab7', 'value'),
+        State('day_of_week_checklist_tab7', 'value'),
+        State('weather_selector_tab7', 'value'),
+        State('light_selector_tab7', 'value'),
+        State('road_surface_selector_tab7', 'value'),
+        State('severity_selector_tab7','value'),
+        State('data_type_selector_main_tab7', 'value'),
+        State('data_type_selector_vru_tab7', 'value'),
+        State('crash_type_selector_tab7','value'),
+        State('analysis_selector_tab7', 'value')
+    ],
+    prevent_initial_call=True
+)
+
+def download_filtered_data_tab7(n_clicks, selected_data, func_class_selected, counties_selected,
+            start_date, end_date, time_range, days_of_week, weather, light, road_surface, severity_category, 
+            main_data_type, vru_data_type, crash_type, analysis_type):
+    if n_clicks > 0:
+        try:
+            # Load full data for the selected counties.
+            df = get_county_data(counties_selected)
+            if df.empty:
+                logger.warning(f"No data available to download for counties: {counties_selected}")
+                raise PreventUpdate
+
+            # Apply the same filters as in update_map_tab1.
+            filtered_df = filter_data_tab1(
+                df, start_date, end_date, time_range,
+                days_of_week, weather, light, road_surface,  severity_category, crash_type,
+                main_data_type, vru_data_type, 
+            )
+
+            format_string = "%Y-%m-%d"
+            min_year = datetime.datetime.strptime(start_date, format_string).year
+            max_year = datetime.datetime.strptime(end_date, format_string).year
+            selected_years = list(range(min_year, max_year + 1))
+            study_period = len(selected_years)
+
+            import uuid
+            import tempfile
+            filename = f"my_shapefile_{uuid.uuid4()}.shp"
+
+            if analysis_type == "Segment":
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    fig, data = AADT.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_df)
+                    output_filepath = os.path.join(temp_dir, filename)
+                    data.to_file(output_filepath, driver='ESRI Shapefile')
+                    return dcc.send_file(output_filepath)
+            elif analysis_type == "Intersection":
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    fig, data = AADT.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_df)
+                    output_filepath = os.path.join(temp_dir, filename)
+                    data.to_file(output_filepath, driver='ESRI Shapefile')
+                    return dcc.send_file(output_filepath)
+            # # If a box selection exists, further filter by the selected points.
+            # if selected_data and 'points' in selected_data and selected_data['points']:
+            #     selected_case_numbers = [point['customdata'][0] for point in selected_data['points']]
+            #     filtered_df = filtered_df[filtered_df['Case_Number'].isin(selected_case_numbers)]
+            #     logger.debug(f"Downloading {len(filtered_df)} records after box selection filtering.")
+            # else:
+            #     logger.debug(f"Downloading all {len(filtered_df)} records after applying filters.")
+        except Exception as e:
+            logger.error(f"Error in download_filtered_data_tab7: {e}")
+            raise PreventUpdate
+    return None
+
+# ----------------------------
 # 8. Run the Dash App
 # ----------------------------
 if __name__ == '__main__':
@@ -2550,7 +2812,7 @@ if __name__ == '__main__':
     # 8.1. Define Data Folder and File Paths
     # ----------------------------
     data_folder = 'data'
-    data_final_file = os.path.join(data_folder, 'Data_Final.csv')  # Data_Final.csv path
+    data_final_file = os.path.join(data_folder, 'Data_Final_2024.csv')  # Data_Final.csv path
     census_data_file = os.path.join(data_folder, 'TractData.gpkg')  # GeSoPackage file for Census Data
 
     # ----------------------------

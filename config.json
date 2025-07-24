@@ -6,7 +6,7 @@
         "training_data_path": "./chatbot/training_data.json"
     },
     "general": {
-        "api_key": "AIzaSyBQ2Ca6HSly3DdXo4e35Nd1PjoroVSyFzs"
+        "api_key": ""
     },
     "models": {
         "1.5-flash": "gemini-1.5-flash",

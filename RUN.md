@@ -23,7 +23,7 @@ Go to https://apps.microsoft.com/detail/9NRWMJP3717K?hl=en-us&gl=US&ocid=pdpshar
 
 2. Download the zip file
 
-3. Extract the zip file into the source code directory, e.g., `C:\Users\<your_name>\CrashDataAnalytics`
+3. Extract the zip file into the source code directory, e.g., `C:\Users\<your_name>\CrashAnalytics-main`
 
 ## Run the App
 
@@ -44,7 +44,7 @@ python3.11 -m venv <environment_name>
 ### Step 2 - Move to the directory containing the source code
 
 ```
-cd CrashDataAnalytics
+cd CrashAnalytics-main
 ```
 
 ### Step 3 - Install requirements

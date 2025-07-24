@@ -1,13 +1,14 @@
 #formula-button {
-    background-color: #0e42a1;
-    color: white;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    width: 25px; /* Slightly smaller size */
-    height: 25px; /* Slightly smaller size */
-    font-size: 1.1em; /* Adjust font size */
-    position: relative;
+    display: inline-block;
+    background-color: #ccc;
+    border: 1px solid #999;
+    border-radius: 3px;
+    width: 20px;
+    height: 20px;
+    text-align: center;
+    line-height: 20px;
+    cursor: help;
+    margin-left: 5px;
 }
 
 #formula-button :hover{
@@ -17,4 +18,13 @@
 #analysis_type-div {
     display: flex;
     padding: 10px;
+}
+
+#crash-rate-content{
+    padding: 30px 20px;
+    width: 80%;
+}
+
+#scatter_map_tab7{
+    height: 70vh;
 }

@@ -1,4 +1,4 @@
-from dash import dcc, html
+from dash import dcc, html, dash_table
 
 def load_crash_rate_layout(available_counties,
                            available_func_classes, 
@@ -42,11 +42,16 @@ def load_crash_rate_layout(available_counties,
                                             value='Segment',
                                             labelStyle={'display': 'inline-block', 'margin-right': '10px'}
                                         ),
-                                        html.Button(
-                                            id='formula-button',n_clicks=0, 
-                                            children=[
-                                                html.I(id='formula-button-icon',className="fa fa-info", title="Get AI Powered Insights"),
-                                        ]),   
+                                        html.Div(
+                                            "i",
+                                            id='formula-button',
+                                            title=None
+                                        ),
+                                        # html.Button(
+                                        #     id='formula-button',n_clicks=0, 
+                                        #     children=[
+                                        #         html.I(id='formula-button-icon',className="fa fa-info", title="Get AI Powered Insights"),
+                                        # ]),   
                                     ]),
                                     html.Label('Functional Class:', style={'margin-top': '10px'}),
                                     dcc.Dropdown(
@@ -92,6 +97,13 @@ def load_crash_rate_layout(available_counties,
                                     },
                                     config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
                                 ),
+                                html.Div(id='crash-rate-content',children=[
+                                #     html.H1('Top 10 Segments', style={'margin-top': '10px'}),
+                                #     dash_table.DataTable(
+                                #         id='crash-rate-table',
+                                #         data=None,
+                                #         style_cell={'textAlign': 'left'},)
+                                ])
                             ],className='responsive-graph'),
                         ],
                         className='desktop-layout'

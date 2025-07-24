@@ -1,6 +1,6 @@
 import base64
 import dash
-from dash import Dash, DiskcacheManager, dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL
+from dash import Dash, DiskcacheManager, dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL, dash_table
 import dash_bootstrap_components as dbc
 import datetime
 import diskcache
@@ -1295,7 +1295,7 @@ def toggle_vru_options_tab7(main_value):
     return {'display': 'block'} if main_value == 'VRU' else {'display': 'none'}
 
 @app.callback(
-    Output('formula-button-icon', 'title'),
+    Output('formula-button', 'title'),
     Input('analysis_selector_tab7', 'value')
 )
 def update_formula_btn_info(analysis_type):
@@ -2610,7 +2610,8 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
 @app.callback(
     [
         Output('scatter_map_tab7', 'figure'),
-        Output('scatter_map_tab7', 'selectedData')
+        Output('scatter_map_tab7', 'selectedData'),
+        Output('crash-rate-content', 'children')
     ],
     [
         Input('apply_filter_tab7', 'n_clicks'),
@@ -2656,6 +2657,8 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
     # helper to set uirevision key
     key = 'tab7-' + '-'.join(sorted(counties_selected or []))
 
+    table = None
+
     # empty‐data fallback
     if df.empty:
         fig = go.Figure()
@@ -2673,14 +2676,17 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
             name="GeoDataFrame Lines"
         ))
         fig.update_layout(
-            mapbox_style="open-street-map",
-            mapbox_zoom=7, # Adjust as needed
+            map=dict(
+                style="open-street-map",
+                center={'lat': lat_center, 'lon': lon_center},
+                zoom=10
+            ),
             margin={"r":0,"t":0,"l":0,"b":0},
             title="MultiLineStrings from GeoDataFrame"
         )
         fig.update_layout(uirevision=key)
-        return fig, None
-    print(analysis_type)
+        return fig, None, None
+    
     # apply filters
     if triggered == 'apply_filter_tab7':
         filtered_crashes = filter_data_tab1(
@@ -2697,9 +2703,32 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
 
         if analysis_type == "Segment":
             fig, data = AADT.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_crashes)
+            top_segments = data.nlargest(n=10, columns='crash_rate')
+            top_segments = top_segments.rename(columns={'AADT_Stats_2023_Table_Description': 'description', 'AADT_Stats_2023_Table_AADT': 'AADT'})
+            selected_cols = top_segments[['unique_id', 'description', 'AADT', 'road_length_mi', 'crash_count', 'crash_rate']]
+            data = selected_cols.to_dict('records')
+            table = html.Div([
+                html.H1('Top 10 Segments', style={'margin-top': '10px'}),
+                dash_table.DataTable(
+                    id='crash-rate-table',
+                    data=data,
+                    style_cell={'textAlign': 'left'},)
+            ])
         elif analysis_type == "Intersection":
             fig, data = AADT.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_crashes)
+            top_intersections = data.nlargest(n=10, columns='crash_rate')
+            top_intersections = top_intersections.rename(columns={'node_id': 'intersection_id'})
+            selected_cols = top_intersections[['intersection_id', 'DEV', 'crash_count', 'crash_rate']]
+            data = selected_cols.to_dict('records')
+            table = html.Div([
+                html.H1('Top 10 Intersections', style={'margin-top': '10px'}),
+                dash_table.DataTable(
+                    id='crash-rate-table',
+                    data=data,
+                    style_cell={'textAlign': 'left'},)
+            ])
         out_selected = selected_data
+
     else:  # initial_load
         fig = go.Figure()
 
@@ -2716,16 +2745,20 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
             name="GeoDataFrame Lines"
         ))
         fig.update_layout(
-            mapbox_style="open-street-map",
-            mapbox_zoom=7, # Adjust as needed
+            map=dict(
+                style="open-street-map",
+                center={'lat': lat_center, 'lon': lon_center},
+                zoom=10
+            ),
             margin={"r":0,"t":0,"l":0,"b":0},
             title="MultiLineStrings from GeoDataFrame"
         )
         fig.update_layout(uirevision=key)
-        return fig, None   
+        return fig, None, None   
 
     fig.update_layout(uirevision=key)
-    return fig, out_selected
+    return fig, out_selected, table
+
 # Callback to Download Filtered Data in Data Downloader Tab (tab1)
 @app.callback(
     Output('download_data_tab7', 'data'),
@@ -2778,6 +2811,9 @@ def download_filtered_data_tab7(n_clicks, selected_data, func_class_selected, co
 
             import uuid
             import tempfile
+            from pathlib import Path
+            import shutil
+            import zipfile
             filename = f"my_shapefile_{uuid.uuid4()}.shp"
 
             if analysis_type == "Segment":

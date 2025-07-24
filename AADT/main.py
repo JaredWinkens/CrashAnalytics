@@ -23,10 +23,9 @@ gdf = gdf.to_crs(epsg=4326)
 gdf = gdf.explode(index_parts=False)
 
 gdf['unique_id'] = gdf.index #[uuid.uuid4() for _ in range(len(gdf))] # Generate UID for each row
-gdf['centroid'] = gdf['geometry'].centroid
-gdf['center_lat'] = gdf['centroid'].y
-gdf['center_lon'] = gdf['centroid'].x
-gdf = gdf.drop(columns=['centroid']) # Drop the temporary shapely point
+gdf['center_lat'] = gdf.geometry.centroid.y
+gdf['center_lon'] = gdf.geometry.centroid.x
+# Drop the temporary shapely point
 
 # for i, col in enumerate(gdf.columns):
 #     print(i,". ", col, gdf[col].iloc[0])
@@ -179,19 +178,20 @@ def get_intersections(gdf_lines: gpd.GeoDataFrame):
     )
     fig.show()
 
-def get_intersections_osm(counties: list):
+pbf_file_path = "data/new-york-latest.osm.pbf"
+def get_intersections_osm(county: str):
     
-    counties_formatted = []
-    for county in counties:
-        place_name = f"{county} County, New York, USA"
-        counties_formatted.append(place_name)
+    # counties_formatted = []
+    # for county in counties:
+    #     place_name = f"{county} County, New York, USA"
+    #     counties_formatted.append(place_name)
 
-    print(f"Downloading street network for {counties_formatted}...")
+    print(f"Downloading street network for {county} County, New York, USA")
     try:
         # 2. Download the street network graph for Albany
         # This will get all streets and their intersections (nodes)
         #north, south, east, west = 42.4072030, 42.8225420, -74.2646330, -73.6769420
-        graph = ox.graph_from_place(counties_formatted, network_type="drive")
+        graph = ox.graph_from_place(f"{county} County, New York, USA", network_type="drive")
 
         print("Street network downloaded successfully.")
 
@@ -217,7 +217,7 @@ def get_intersections_osm(counties: list):
         intersections_gdf = gpd.GeoDataFrame(intersections_data, geometry=geometry, crs="EPSG:4326")
 
         print("\n--- Intersections Data ---")
-        print(f"Found {len(intersections_gdf)} intersections in {place_name}.")
+        print(f"Found {len(intersections_gdf)} intersections in {county}.")
         print(intersections_gdf.head()) # Display the first few rows
         return intersections_gdf
         # Optional: Save to a CSV file
@@ -289,7 +289,8 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
     print("\nGeoDataFrame with Crash Counts:")
     print(gdf_lines[['unique_id', 'crash_count']].head())
     
-    gdf_lines['crash_rate'] = np.nan
+    gdf_lines['crash_rate'] = 0.0
+    gdf_lines['road_length_mi'] = 0.0
     segment_lats = []
     segment_lons = []
     segment_ids = []
@@ -297,9 +298,9 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
     hover_text = []
     
     # Calculate crash rate for each segment
-    for _, row in gdf_lines.iterrows():
+    for idx, row in gdf_lines.iterrows():
         x, y = row.geometry.xy
-        print(row.geometry)
+        
         seg_AADT = float(row['AADT_Stats_2023_Table_AADT']) # Annual Average Daily Traffic
         try: to_mile = float(row['AADT_Stats_2023_Table_To_Milepoint']) 
         except ValueError: to_mile = 0.0
@@ -307,7 +308,9 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
         except ValueError: from_mile = 0.0
         seg_length_mi = to_mile - from_mile
         seg_crash_count = row['crash_count']
-        row['crash_rate'] = calculate_segment_crash_rate(seg_crash_count, seg_AADT, study_period, seg_length_mi)
+        crash_rate = calculate_segment_crash_rate(seg_crash_count, seg_AADT, study_period, seg_length_mi)
+        gdf_lines.at[idx, 'crash_rate'] = crash_rate
+        gdf_lines.at[idx, 'road_length_mi'] = seg_length_mi
         
         # Create custom hover text using other columns for this line
         hover_info = f"""
@@ -318,7 +321,7 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
         Length (mi): {seg_length_mi}<br>
         AADT: {seg_AADT}<br>
         Total Crashes: {seg_crash_count}<br>
-        Estimated Crash Rate: {row['crash_rate']}
+        Estimated Crash Rate: {crash_rate}
         """
         
         segment_lons.extend(x)
@@ -365,15 +368,15 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
 
     # Create the layout for the map
     layout = go.Layout(
-        mapbox=dict(
+        map=dict(
             style="open-street-map", # Or "carto-positron", "stamen-terrain", "stamen-watercolor", "stamen-toner"
             zoom=10,
-            center=go.layout.mapbox.Center(
+            center=go.layout.map.Center(
                 lat=gdf_lines.geometry.centroid.y.mean(),
                 lon=gdf_lines.geometry.centroid.x.mean()
             )
         ),
-        title="Road Segments Analysis",
+        title=f'Segment Analysis of {", ".join(counties)}',
         margin={"r":0,"t":40,"l":0,"b":0}
     )
 
@@ -420,7 +423,9 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
         gdf_lines = gdf_lines[gdf_lines['AADT_Stats_2023_Table_Functional_Class'].isin(func_classes)]
 
     # Get filtered intersection data
-    gdf_intersections = get_intersections_osm(counties)
+    gdf_intersections_list = []
+    for county in counties: gdf_intersections_list.append(get_intersections_osm(county))
+    gdf_intersections = pd.concat(gdf_intersections_list, ignore_index=True)
 
     # Project data into a more percise EPSG format for analysis
     gdf_crashes_proj = gdf_crashes.to_crs(epsg=32618)
@@ -446,7 +451,8 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
     merged_gdf = merged_gdf.drop(columns=['original_index', 'index_right'])
     merged_gdf['nearby_segments_AADT'] = merged_gdf['nearby_segments_AADT'].apply(lambda x: x if isinstance(x, list) else [])
 
-    print(merged_gdf.head())
+    merged_gdf['DEV'] = 0.0
+    merged_gdf['crash_rate'] = 0.0
 
     hover_text = []
     # Get crash rate for every intersection
@@ -455,8 +461,10 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
         segs_AADT = row['nearby_segments_AADT']
         if len(segs_AADT) == 0: int_DEV = 0.0
         else: int_DEV = sum(segs_AADT) / len(segs_AADT) # Daily Entering Volume (Average AADT of all segments inside intersection)
+        merged_gdf.at[idx, 'DEV'] = int_DEV
 
         crash_rate = calculate_intersection_crash_rate(int_crash_count, int_DEV, study_period)
+        merged_gdf.at[idx, 'crash_rate'] = crash_rate
 
         hover_info = f"""
         ID: {row['node_id']}<br>
@@ -532,18 +540,18 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
 
     # Create the layout for the map
     layout = go.Layout(
-        mapbox=dict(
+        map=dict(
             style="open-street-map", # Or "carto-positron", "stamen-terrain", "stamen-watercolor", "stamen-toner"
             zoom=10,
-            center=go.layout.mapbox.Center(
+            center=go.layout.map.Center(
                 lat=gdf_lines.geometry.centroid.y.mean(),
                 lon=gdf_lines.geometry.centroid.x.mean()
             )
         ),
-        title="Road Intersection Analysis",
+        title=f'Intersection Analysis of {", ".join(counties)}',
         margin={"r":0,"t":40,"l":0,"b":0}
     )
 
     fig = go.Figure(data=[segment_trace, intersection_trace, crash_trace], layout=layout)
     
-    return fig, gdf_lines
+    return fig, merged_gdf

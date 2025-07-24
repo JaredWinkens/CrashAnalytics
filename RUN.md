@@ -41,30 +41,30 @@ python3.11 -m venv <environment_name>
 <environment_name>\Scripts\activate.bat
 ```
 
-### Step 2 - Move to the directory containing the source code
+### Step 3 - Move to the directory containing the source code
 
 ```
 cd CrashAnalytics-main
 ```
 
-### Step 3 - Install requirements
+### Step 4 - Install requirements
 *Note: This may take some time.*
 ```
 pip install -r requirements.txt
 ```
 
-### Step 4 - Create configuration file
+### Step 5 - Create configuration file
 
 ```
 python create_config_file.py
 ```
 
-### Step 5 - Run the app
+### Step 6 - Run the app
 
 ```
 python app.py
 ```
 
-### Step 6 - View on the web
+### Step 7 - View on the web
 
 The app should be running on `http://127.0.0.1:8080`. Copy and paste this URL into the browser, and you should see the web app running.

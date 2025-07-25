@@ -382,7 +382,12 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
 
     fig = go.Figure(data=[segment_trace, crash_trace], layout=layout)
 
-    return fig, gdf_lines
+    data = [
+        {'name': 'road_segments', 'data': gdf_lines},
+        {'name': 'crashes', 'data': crashes_on_multilinestrings_to_plot},
+    ]
+
+    return fig, data
 
 def get_ground_resolution(latitude, zoom_level):
     """
@@ -554,4 +559,10 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
 
     fig = go.Figure(data=[segment_trace, intersection_trace, crash_trace], layout=layout)
     
-    return fig, merged_gdf
+    data = [
+        {'name': 'road_segments', 'data': gdf_lines},
+        {'name': 'intersections', 'data': gdf_intersections},
+        {'name': 'crashes', 'data': crashes_in_intersections_to_plot},
+    ]
+
+    return fig, data

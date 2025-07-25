@@ -2819,15 +2819,31 @@ def download_filtered_data_tab7(n_clicks, selected_data, func_class_selected, co
             if analysis_type == "Segment":
                 with tempfile.TemporaryDirectory() as temp_dir:
                     fig, data = AADT.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_df)
-                    output_filepath = os.path.join(temp_dir, filename)
-                    data.to_file(output_filepath, driver='ESRI Shapefile')
-                    return dcc.send_file(output_filepath)
+
+                    for i, gdf in enumerate(data):
+                        filename = gdf['name']
+                        filepath = os.path.join(temp_dir, filename)
+                        gdf['data'].to_file(filepath, driver='ESRI Shapefile')
+
+                    zip_file_name = "segment_analysis.zip"
+                    zip = shutil.make_archive(zip_file_name.split('.')[0], 'zip', temp_dir)
+
+                    return dcc.send_file(zip)
+                
             elif analysis_type == "Intersection":
                 with tempfile.TemporaryDirectory() as temp_dir:
                     fig, data = AADT.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_df)
-                    output_filepath = os.path.join(temp_dir, filename)
-                    data.to_file(output_filepath, driver='ESRI Shapefile')
-                    return dcc.send_file(output_filepath)
+                    
+                    for i, gdf in enumerate(data):
+                        filename = gdf['name']
+                        filepath = os.path.join(temp_dir, filename)
+                        gdf['data'].to_file(filepath, driver='ESRI Shapefile')
+
+                    zip_file_name = "intersection_analysis.zip"
+                    zip = shutil.make_archive(zip_file_name.split('.')[0], 'zip', temp_dir)
+
+                    return dcc.send_file(zip)
+                
             # # If a box selection exists, further filter by the selected points.
             # if selected_data and 'points' in selected_data and selected_data['points']:
             #     selected_case_numbers = [point['customdata'][0] for point in selected_data['points']]
@@ -2954,6 +2970,6 @@ if __name__ == '__main__':
     globals()['data_by_county'] = data_by_county
 
     print("Finished loading webapp.")
-    print("127.0.0.1:8080")
+    print("127.0.0.1:8050")
 
-    app.run(port="8080", debug=False)
+    app.run(port="8050", debug=True)

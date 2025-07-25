@@ -19,7 +19,7 @@ Go to https://apps.microsoft.com/detail/9NRWMJP3717K?hl=en-us&gl=US&ocid=pdpshar
 
 ## Download Data
 
-1. Go to https://sunypoly-my.sharepoint.com/:u:/g/personal/winkenj_sunypoly_edu/EaP9kaLP0_9BvByH6s21d2gB-x4Av16vk1uAShGw3beIoA?e=lyomjK
+1. Go to [https://sunypoly-my.sharepoint.com/:u:/g/personal/winkenj_sunypoly_edu/EaP9kaLP0_9BvByH6s21d2gB-x4Av16vk1uAShGw3beIoA?e=lyomjK](https://sunypoly-my.sharepoint.com/:u:/r/personal/winkenj_sunypoly_edu/Documents/data.zip?csf=1&web=1&e=m62dx1)
 
 2. Download the zip file
 

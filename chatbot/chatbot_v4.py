@@ -79,6 +79,7 @@ def get_sqlite_table_schema(table_name: str) -> str:
     Returns:
         A string representing the schema.
     """
+    print("TOOL CALL: get_sqlite_table_schema", "Table Name: ",table_name)
     conn = sqlite3.connect(SQLITE_DATABASE_FILE)
     cursor = conn.cursor()
     
@@ -124,7 +125,7 @@ def execute_read_sqlite_query(sql_query: str) -> SQLiteQueryResult:
     Returns:
         A SQLiteQueryResult object containing the JSON representation of the query result.
     """
-    print(sql_query)
+    print("TOOL CALL: execute_read_sqlite_query", "SQL Query: ",sql_query)
     if not sql_query.strip().upper().startswith(("SELECT", "PRAGMA", "EXPLAIN")):
         return SQLiteQueryResult(
             columns=[],
@@ -165,6 +166,7 @@ def get_chroma_collection_info(collection_name: str) -> List[ChromaCollectionInf
         A list of ChromaCollectionInfo objects containing the name, id, 
         and number of items in the collection.
     """
+    print("TOOL CALL: get_chroma_collection_info", "Collection Name: ",collection_name)
     if chroma_client is None:
         return []
     if collection_name.lower() == 'all':
@@ -197,6 +199,7 @@ def search_chroma_documents(
     Returns:
         A list of ChromaQueryResult objects each containing a JSON representation of a chroma document.
     """
+    print("TOOL CALL: search_chroma_documents ","Query to be embedded: ",query_text, "Collection Name: ",collection_name)
     if chroma_client is None:
         return [] # Return empty if ChromaDB failed to initialize
 
@@ -294,7 +297,7 @@ def visualize_data(
         A PlotlyMapResult object containing the JSON representation of the plot and a status message.
     """
     conn = sqlite3.connect(SQLITE_DATABASE_FILE)
-    print("MAP TYPE: ", map_type)
+    print("TOOL CALL: visualize_data ", "MAP TYPE: ", map_type)
     try:
         lat = select_columns[0]
         lon = select_columns[1]
@@ -374,6 +377,10 @@ def create_new_chat_session():
             )
         )
     )
+    schema = get_sqlite_table_schema('all')
+    chat.send_message(f"Here is the schema for the SQL database: \n{schema}")
+    collections = get_chroma_collection_info('all')
+    chat.send_message(f"Here are the collections in the Chroma database: \n{collections}")
 
 system_prompt = """
 You are an interactive roadway safety chatbot designed to provide users with real-time, data-driven insights on roadway safety.

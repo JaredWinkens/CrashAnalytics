@@ -1,10 +1,10 @@
-# Instructions for running on a Windows locally
+# Instructions for running locally on Windows
 
 ## Install Python 3.11
 
-Go to https://apps.microsoft.com/detail/9NRWMJP3717K?hl=en-us&gl=US&ocid=pdpshare and install python 3.11 on your computer.
+Go to https://apps.microsoft.com/detail/9NRWMJP3717K?hl=en-us&gl=US&ocid=pdpshare and install Python 3.11 on your computer.
 
-*Note: You must install this exact version of Python or you won't be able to run the app.*
+*Note: You must install this exact version of Python, or you won't be able to run the app..*
 
 ## Download Source Code
 
@@ -14,22 +14,22 @@ Go to https://apps.microsoft.com/detail/9NRWMJP3717K?hl=en-us&gl=US&ocid=pdpshar
 
 3. Click "Download ZIP"
 
-4. Extract the zip file into your home directory e.g. `C:\Users\<your_name>`
+4. Extract the zip file into your home directory, e.g., `C:\Users\<your_name>`
 
 
 ## Download Data
 
-1. Go to https://sunypoly-my.sharepoint.com/:u:/g/personal/winkenj_sunypoly_edu/EaP9kaLP0_9BvByH6s21d2gB-x4Av16vk1uAShGw3beIoA?e=lyomjK
+1. Go to [https://sunypoly-my.sharepoint.com/:u:/g/personal/winkenj_sunypoly_edu/EaP9kaLP0_9BvByH6s21d2gB-x4Av16vk1uAShGw3beIoA?e=lyomjK](https://sunypoly-my.sharepoint.com/:u:/r/personal/winkenj_sunypoly_edu/Documents/data.zip?csf=1&web=1&e=m62dx1)
 
 2. Download the zip file
 
-3. Extract zip file into the source code directory e.g. `C:\Users\<your_name>\CrashDataAnalytics`
+3. Extract the zip file into the source code directory, e.g., `C:\Users\<your_name>\CrashAnalytics-main`
 
 ## Run the App
 
-Open **command prompt** at execute the following commands
+Open **command prompt** and execute the following commands
 
-### Step 1 - Create virtual environment
+### Step 1 - Create a virtual environment
 
 ```
 python3.11 -m venv <environment_name>
@@ -41,30 +41,30 @@ python3.11 -m venv <environment_name>
 <environment_name>\Scripts\activate.bat
 ```
 
-### Step 2 - Move to the diectory containing the source code
+### Step 3 - Move to the directory containing the source code
 
 ```
-cd CrashDataAnalytics
+cd CrashAnalytics-main
 ```
 
-### Step 3 - Install requirements
+### Step 4 - Install requirements
 *Note: This may take some time.*
 ```
 pip install -r requirements.txt
 ```
 
-### Step 4 - Create configuration file
+### Step 5 - Create configuration file
 
 ```
 python create_config_file.py
 ```
 
-### Step 5 - Run the app
+### Step 6 - Run the app
 
 ```
 python app.py
 ```
 
-### Step 6 - View on the web
+### Step 7 - View on the web
 
-The app should be running on `http://127.0.0.1:8080`. Copy and paste this url into the browser and you should see the web app running.
+The app should be running on `http://127.0.0.1:8080`. Copy and paste this URL into the browser, and you should see the web app running.

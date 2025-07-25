@@ -65,6 +65,6 @@ python create_config_file.py
 python app.py
 ```
 
-### Step 7 - View on the web
+### Step 6 - View on the web
 
-The app should be running on `http://127.0.0.1:8080`. Copy and paste this URL into the browser, and you should see the web app running.
+The app should be running on `http://127.0.0.1:8080`. Copy and paste this url into the browser and you should see the web app running.

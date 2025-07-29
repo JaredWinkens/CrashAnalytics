@@ -21,8 +21,8 @@ import numpy as np
 import math
 import json
 import subprocess
-import analyzer.map_analyzer as map_analyzer
-import analyzer.streetview_analyzer as streetview
+import crash_heat_map.map_analyzer as map_analyzer
+import crash_street_view.streetview_analyzer as streetview
 import chatbot.chatbot_v4 as chatbotv4
 import layouts.census_data_layout
 import layouts.crash_rate_layout
@@ -31,7 +31,7 @@ import layouts.heatmap_layout
 import layouts.chatbot_layout
 import layouts.crash_analyzer_layout
 import layouts.predictions_layout
-import AADT.main
+import crash_rate_analysis.main
 
 ALL_FIELDS = [
     ("DEMOGIDX_5",     "Demographic Index (5-yr ACS)",        0.01),
@@ -530,7 +530,7 @@ CACHE_TIMEOUT = 60 * 60
 
 def convert_miles_to_pixels(miles, zoom, center_latitude):
     """
-    Convert a distance in miles to a pixel radius for a density mapbox.
+    Convert a distance in miles to a pixel radius for a density map.
 
     Parameters:
         miles (float): The desired radius in miles.
@@ -1002,7 +1002,7 @@ def get_county_data(counties_selected):
 @app.callback(Output('tabs-content', 'children'), Input('tabs', 'value'))
 def render_content(tab):
     available_counties = list(county_coordinates.keys())
-    available_func_classes = AADT.main.get_unique_col_values('AADT_Stats_2023_Table_Functional_Class')
+    available_func_classes = available_road_classes
     min_date = data_final_df['Crash_Date'].min()
     max_date = data_final_df['Crash_Date'].max()
     initial_bot_message = "Hello! I am an interactive safety chatbot designed to provide you with real-time, data-driven insights on roadway safety. Whether you seek information about high-risk areas, traffic incident trends, or general road safety guidance, I will offer reliable and context-aware responses.\n\n" \
@@ -1295,11 +1295,17 @@ def toggle_vru_options_tab7(main_value):
     return {'display': 'block'} if main_value == 'VRU' else {'display': 'none'}
 
 @app.callback(
-    Output('formula-button', 'title'),
+    [
+        Output('formula-button', 'title'),
+        Output('select_functional_class_tab7', 'options'),
+        Output('select_functional_class_tab7', 'value')
+    ],
     Input('analysis_selector_tab7', 'value')
 )
 def update_formula_btn_info(analysis_type):
     if analysis_type == 'Segment':
+        options = [{'label': 'All', 'value': 'All'}] + [{'label': f_class, 'value': f_class} for f_class in available_road_classes]
+        value = [available_road_classes[0]]
         return """Segment Crash Rate Formula:
 
         Rseg = C x 10^6 / AADT x 365 x T x L
@@ -1310,8 +1316,10 @@ def update_formula_btn_info(analysis_type):
         AADT = Annual Average Daily Traffic (veh./day)
         T = Study Period (yrs.)
         L = Length of the Segment (mi)
-        """
+        """, options, value
     elif analysis_type == 'Intersection':
+        options = [{'label': 'All', 'value': 'All'}] + [{'label': f_class, 'value': f_class} for f_class in available_intersection_classes]
+        value = [available_intersection_classes[0]]
         return """Intersection Crash Rate Formula:
 
         Rint = C x 10^6 / DEV x 365 x T
@@ -1321,9 +1329,9 @@ def update_formula_btn_info(analysis_type):
         C = Crashes during analysis period
         DEV = Daily Entering Volume (veh./day)
         T = Study Period (yrs.)
-        """
+        """, options, value
     else:
-        return ""
+        return "", []
 # ----------------------------
 # 7.1. Callback for Data Downloader Tab (tab1)
 # ----------------------------
@@ -1522,7 +1530,7 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
             },
             custom_data=['Case_Number']
         )
-        fig.update_layout(mapbox_center={'lat': lat_center, 'lon': lon_center})
+        fig.update_layout(map_center={'lat': lat_center, 'lon': lon_center})
 
     fig.update_layout(uirevision=key)
     return fig, out_selected
@@ -1747,7 +1755,7 @@ def update_map_tab3(apply_n_clicks, counties_selected, selected_attribute):
                 except:
                     norm = 0.5
                 opacity = 0.1 + 0.9 * norm
-                fig.add_trace(go.Scattermapbox(
+                fig.add_trace(go.Scattermap(
                     lat=list(lats),
                     lon=list(lons),
                     mode='lines',
@@ -1769,7 +1777,7 @@ def update_map_tab3(apply_n_clicks, counties_selected, selected_attribute):
         center_lat, center_lon = fallback['lat'], fallback['lon']
 
     fig.update_layout(
-        mapbox=dict(
+        map=dict(
             style="open-street-map",
             center={'lat': center_lat, 'lon': center_lon},
             zoom=10
@@ -1948,7 +1956,7 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         missing = gdf[ gdf['Prediction'].isna()]
 
         fig = go.Figure([
-            go.Choroplethmapbox(
+            go.Choroplethmap(
                 geojson=json.loads(missing.to_json()),
                 locations=missing['id'],
                 z=[0]*len(missing),
@@ -1960,7 +1968,7 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
                 name="Missing",
                 hovertemplate="<extra></extra>" 
             ),
-                go.Choroplethmapbox(
+                go.Choroplethmap(
                 geojson=json.loads(valid.to_json()),
                 locations=valid['id'],
                 z=valid['Prediction'],
@@ -1984,7 +1992,7 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
             center = {'lat': 40.7128, 'lon': -74.0060}
 
         fig.update_layout(
-            mapbox=dict(
+            map=dict(
                 style="open-street-map",
                 center=center,
                 zoom=10
@@ -1998,12 +2006,12 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
     except Exception as e:
         logger.error(f"Error in update_predictions_map: {e}", exc_info=True)
         # fallback blank map, also preserving camera if possible
-        fig = go.Figure(go.Scattermapbox(
+        fig = go.Figure(go.Scattermap(
             lat=[40.7128], lon=[-74.0060],
             mode='markers', marker=dict(opacity=0)
         ))
         fig.update_layout(
-            mapbox=dict(
+            map=dict(
                 style="open-street-map",
                 center={'lat':40.7128,'lon':-74.0060},
                 zoom=10
@@ -2599,7 +2607,7 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
             },
             custom_data=['Case_Number']
         )
-        fig.update_layout(mapbox_center={'lat': lat_center, 'lon': lon_center})
+        fig.update_layout(map_center={'lat': lat_center, 'lon': lon_center})
 
     fig.update_layout(uirevision=key)
     return fig, out_selected
@@ -2682,7 +2690,6 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
                 zoom=10
             ),
             margin={"r":0,"t":0,"l":0,"b":0},
-            title="MultiLineStrings from GeoDataFrame"
         )
         fig.update_layout(uirevision=key)
         return fig, None, None
@@ -2702,8 +2709,8 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
         study_period = len(selected_years)
 
         if analysis_type == "Segment":
-            fig, data = AADT.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_crashes)
-            top_segments = data.nlargest(n=10, columns='crash_rate')
+            fig, data = crash_rate_analysis.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_crashes)
+            top_segments = data['road_segments'].nlargest(n=10, columns='crash_rate')
             top_segments = top_segments.rename(columns={'AADT_Stats_2023_Table_Description': 'description', 'AADT_Stats_2023_Table_AADT': 'AADT'})
             selected_cols = top_segments[['unique_id', 'description', 'AADT', 'road_length_mi', 'crash_count', 'crash_rate']]
             data = selected_cols.to_dict('records')
@@ -2714,9 +2721,10 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
                     data=data,
                     style_cell={'textAlign': 'left'},)
             ])
+            
         elif analysis_type == "Intersection":
-            fig, data = AADT.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_crashes)
-            top_intersections = data.nlargest(n=10, columns='crash_rate')
+            fig, data = crash_rate_analysis.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_crashes)
+            top_intersections = data['merged'].nlargest(n=10, columns='crash_rate')
             top_intersections = top_intersections.rename(columns={'node_id': 'intersection_id'})
             selected_cols = top_intersections[['intersection_id', 'DEV', 'crash_count', 'crash_rate']]
             data = selected_cols.to_dict('records')
@@ -2818,12 +2826,12 @@ def download_filtered_data_tab7(n_clicks, selected_data, func_class_selected, co
 
             if analysis_type == "Segment":
                 with tempfile.TemporaryDirectory() as temp_dir:
-                    fig, data = AADT.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_df)
+                    fig, data = crash_rate_analysis.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_df)
 
-                    for i, gdf in enumerate(data):
-                        filename = gdf['name']
+                    for key, val in data.items():
+                        filename = key
                         filepath = os.path.join(temp_dir, filename)
-                        gdf['data'].to_file(filepath, driver='ESRI Shapefile')
+                        val.to_file(filepath, driver='ESRI Shapefile')
 
                     zip_file_name = "segment_analysis.zip"
                     zip = shutil.make_archive(zip_file_name.split('.')[0], 'zip', temp_dir)
@@ -2832,12 +2840,12 @@ def download_filtered_data_tab7(n_clicks, selected_data, func_class_selected, co
                 
             elif analysis_type == "Intersection":
                 with tempfile.TemporaryDirectory() as temp_dir:
-                    fig, data = AADT.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_df)
+                    fig, data = crash_rate_analysis.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_df)
                     
-                    for i, gdf in enumerate(data):
-                        filename = gdf['name']
+                    for key, val in data.items():
+                        filename = key
                         filepath = os.path.join(temp_dir, filename)
-                        gdf['data'].to_file(filepath, driver='ESRI Shapefile')
+                        val.to_file(filepath, driver='ESRI Shapefile')
 
                     zip_file_name = "intersection_analysis.zip"
                     zip = shutil.make_archive(zip_file_name.split('.')[0], 'zip', temp_dir)
@@ -2964,6 +2972,17 @@ if __name__ == '__main__':
     # Load Census_Tract_data from the GeoPackage file
     census_polygons_by_county = load_census_data(census_data_file)
     logger.debug(f"Census polygons loaded for {len(census_polygons_by_county)} counties.")
+
+    available_road_classes = ['Urban:Major Collector', 'Urban:Principal Arterial - Interstate', 
+        'Urban:Principal Arterial - Freeways & Expressways', 'Urban:Minor Arterial', 
+        'Urban:Local', 'Urban:Principal Arterial - Other', 'LU:Principal Arterial - Interstate', '', 
+        'LU:Principal Arterial - Freeways & Expressways', 'Rural:Minor Arterial', 'Rural:Major Collector', 
+        'Rural:Local', 'Rural:Minor Collector', 'Rural:Principal Arterial - Freeways & Expressways', 
+        'Urban:Minor Collector', 'Rural:Principal Arterial - Other', 'Rural:Principal Arterial - Interstate', 
+        'LU:Principal Arterial - Other', ':Principal Arterial - Other']
+    available_road_classes.sort()
+
+    available_intersection_classes = ['2-way', '3-way', '4-way', '5-way', '6-way', '7-way', '8-way']
 
     globals()['county_coordinates'] = county_coordinates
     globals()['census_polygons_by_county'] = census_polygons_by_county

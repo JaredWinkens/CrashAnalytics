@@ -16,7 +16,7 @@ import geopandas as gpd
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import plotly.io as pio
-import analyzer.map_analyzer as mapanalyzer
+import crash_heat_map.map_analyzer as mapanalyzer
 from enum import Enum
 
 # load config settings

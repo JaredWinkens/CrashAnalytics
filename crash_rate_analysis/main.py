@@ -10,6 +10,7 @@ from shapely import points
 from shapely.strtree import STRtree
 import osmnx as ox
 import uuid
+import crash_rate_analysis.osm as osm
 
 # Read the gdb file
 gdb_path = "data/NYSDOT_GDB_AADT_2023/AADT_2023.gdb"
@@ -25,7 +26,6 @@ gdf = gdf.explode(index_parts=False)
 gdf['unique_id'] = gdf.index #[uuid.uuid4() for _ in range(len(gdf))] # Generate UID for each row
 gdf['center_lat'] = gdf.geometry.centroid.y
 gdf['center_lon'] = gdf.geometry.centroid.x
-# Drop the temporary shapely point
 
 # for i, col in enumerate(gdf.columns):
 #     print(i,". ", col, gdf[col].iloc[0])
@@ -38,9 +38,6 @@ gdf['center_lon'] = gdf.geometry.centroid.x
 #         break
 # print(gdf.head())
 # print(len(gdf))
-
-def get_unique_col_values(column_name: str = 'AADT_Stats_2023_Table_Functional_Class') -> list:
-    return gdf[column_name].dropna().unique().tolist()
 
 def calculate_intersection_crash_rate(num_crashes_at_int: int, DEV: float, years: int):
     r_int = 0.0
@@ -68,196 +65,6 @@ def calculate_segment_crash_rate(num_crashes_on_seg: int, AADT: float, years: in
 
     return r_seg
 
-def find_intersection_center_points(gdf: gpd.GeoDataFrame):
-    
-    segments: list[MultiLineString] = gdf['geometry']
-    
-    tree = STRtree(segments)
-
-    intersection_centroids_data = []
-    # intersection_centroids_data = {
-    #     'pair_indices': [],
-    #     'mls_a_wkt': [],
-    #     'mls_b_wkt': [],
-    #     'intersection_geometry_wkt': [],
-    #     'centroid_wkt': []
-    # }
-
-    processed_pairs = set()
-
-    for i, seg_a in enumerate(segments):
-        possible_intersection_indices = tree.query(seg_a)
-        for j in possible_intersection_indices:
-            seg_b = segments[j]
-            if i == j:
-                continue
-            if i < j:
-                pair_indices = (i,j)
-            else:
-                pair_indices = (j,i)
-            if pair_indices in processed_pairs:
-                continue # Skip if already processed
-            processed_pairs.add(pair_indices)
-            if seg_a.intersects(seg_b):
-                intersection_geometry = seg_a.intersection(seg_b)
-                if not intersection_geometry.is_empty:
-                    centroid_point = intersection_geometry.centroid
-                    intersection_centroids_data.append({
-                        'pair_indices': pair_indices,
-                        'mls_a_wkt': seg_a.wkt,
-                        'mls_b_wkt': seg_b.wkt,
-                        'intersection_geometry_wkt': intersection_geometry.wkt,
-                        'centroid_wkt': centroid_point.wkt,
-                        'longitude': centroid_point.x,
-                        'latitude': centroid_point.y
-                    })
-                    # intersection_centroids_data['pair_indices'].append(pair_indices)
-                    # intersection_centroids_data['mls_a_wkt'].append(seg_a.wkt)
-                    # intersection_centroids_data['mls_b_wkt'].append(seg_b.wkt)
-                    # intersection_centroids_data['intersection_geometry_wkt'].append(intersection_geometry.wkt)
-                    # intersection_centroids_data['centroid_wkt'].append(centroid_point)
-
-    # if intersection_centroids_data:
-    #     print("Intersection Centroids:")
-    #     for data in intersection_centroids_data:
-    #         print(f"  Intersection between MLS at index {data['pair_indices'][0]} and index {data['pair_indices'][1]}:")
-    #         print(f"    Intersection Geometry: {data['intersection_geometry_wkt']}")
-    #         print(f"    Center Point (Centroid): {data['centroid_wkt']}")
-    #         print("-" * 30)
-    # else:
-    #     print("No intersections found between any of the MultiLineStrings.")
-    return intersection_centroids_data
-
-def get_intersections(gdf_lines: gpd.GeoDataFrame):
-    roads_gdf = gdf_lines
-    print(roads_gdf.head())
-    #roads_gdf['geometry'] = roads_gdf['geometry'].buffer(0)
-
-    intersections_sjoin = gpd.sjoin(roads_gdf, roads_gdf, how="inner", predicate="intersects", lsuffix="left", rsuffix="right")
-    print(intersections_sjoin.head())
-    intersections_sjoin = intersections_sjoin[intersections_sjoin['unique_id_left'] != intersections_sjoin['unique_id_right']]
-    intersections_sjoin['pair_id'] = intersections_sjoin.apply(
-        lambda row: tuple(sorted((row['unique_id_left'], row['unique_id_right']))), axis=1
-    )
-    intersections_sjoin = intersections_sjoin.drop_duplicates(subset=['pair_id'])
-    intersection_geoms = []
-    road_pairs = [] # To store the (id_left, id_right) pairs
-    for idx, row in intersections_sjoin.iterrows():
-        # Retrieve geometries directly using the unique IDs from the original DataFrame
-        geom_left = roads_gdf.loc[roads_gdf['unique_id'] == row['unique_id_left'], 'geometry'].iloc[0]
-        geom_right = roads_gdf.loc[roads_gdf['unique_id'] == row['unique_id_right'], 'geometry'].iloc[0]
-        
-        intersection_geoms.append(geom_left.intersection(geom_right))
-        road_pairs.append(row['pair_id']) # Store the sorted ID pair
-    intersections_gdf = gpd.GeoDataFrame(
-        {'road_pair_ids': road_pairs}, # Store the unique ID pairs
-        geometry=intersection_geoms,
-        crs=roads_gdf.crs
-    )
-    point_intersections = intersections_gdf[
-        intersections_gdf.geometry.apply(lambda geom: geom.geom_type in ['Point', 'MultiPoint'])
-    ]
-    exploded_points = point_intersections.explode(column='geometry')
-    exploded_points = exploded_points[exploded_points.geom_type == 'Point']
-    print("All intersecting geometries (can be Points, MultiPoints, or LineStrings):")
-    print(intersections_gdf)
-    print("\nOnly point intersections (exploded to individual points):")
-    print(exploded_points)
-
-    fig = go.Figure()
-    fig.add_trace(go.Scattermap(
-        lon=exploded_points.geometry.x,
-        lat=exploded_points.geometry.y,
-    ))
-    fig.update_layout(
-        mapbox_style="open-street-map",
-        mapbox_zoom=7, # Adjust as needed
-        mapbox_center={"lat": gdf_lines.geometry.centroid.y.mean(), "lon": gdf_lines.geometry.centroid.x.mean()}, 
-        margin={"r":0,"t":0,"l":0,"b":0},
-        title="Intersections"
-    )
-    fig.show()
-
-pbf_file_path = "data/new-york-latest.osm.pbf"
-def get_intersections_osm(county: str):
-    
-    # counties_formatted = []
-    # for county in counties:
-    #     place_name = f"{county} County, New York, USA"
-    #     counties_formatted.append(place_name)
-
-    print(f"Downloading street network for {county} County, New York, USA")
-    try:
-        # 2. Download the street network graph for Albany
-        # This will get all streets and their intersections (nodes)
-        #north, south, east, west = 42.4072030, 42.8225420, -74.2646330, -73.6769420
-        graph = ox.graph_from_place(f"{county} County, New York, USA", network_type="drive")
-
-        print("Street network downloaded successfully.")
-
-        # 3. Extract nodes (intersections) from the graph
-        # Nodes in the graph represent intersections or dead ends
-        nodes = graph.nodes(data=True)
-
-        # Prepare a list to store intersection data
-        intersections_data = {'node_id': [], 'latitude': [], 'longitude': []}
-
-        print("Extracting latitude and longitude for each intersection...")
-
-        # 4. Iterate through the nodes and get their latitude (y) and longitude (x)
-        for node_id, data in nodes:
-            lat = data['y']
-            lon = data['x']
-            intersections_data['node_id'].append(node_id)
-            intersections_data['latitude'].append(lat)
-            intersections_data['longitude'].append(lon)
-
-        # 5. Store the data in a Pandas DataFrame for better organization
-        geometry = points(intersections_data['longitude'], intersections_data['latitude'])
-        intersections_gdf = gpd.GeoDataFrame(intersections_data, geometry=geometry, crs="EPSG:4326")
-
-        print("\n--- Intersections Data ---")
-        print(f"Found {len(intersections_gdf)} intersections in {county}.")
-        print(intersections_gdf.head()) # Display the first few rows
-        return intersections_gdf
-        # Optional: Save to a CSV file
-        # output_filename = "albany_intersections.csv"
-        # df_intersections.to_csv(output_filename, index=False)
-        # print(f"\nData saved to {output_filename}")
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        print("Please ensure you have an active internet connection and that 'osmnx' is installed.")
-        print("You can install it using: pip install osmnx")
-        return None
-
-import matplotlib.cm as cm
-import matplotlib.colors as colors
-
-def get_color_map(lst: list[float], min, max):
-    if min == max:
-        # If all rates are the same, assign a neutral color (e.g., mid-range purple)
-        return ["rgb(128,0,128)"] * len(lst)
-    cmap = cm.get_cmap('coolwarm')
-    norm = colors.Normalize(vmin=min, vmax=max)
-    color_list = []
-    for rate in lst:
-        # Apply the normalizer to get a value between 0 and 1
-        normalized_value = norm(rate)
-        # Get the RGBA color from the colormap (values are 0-1 floats)
-        rgba_color = cmap(normalized_value)
-
-        # Convert RGBA (0-1) to RGB (0-255) integers
-        r = int(rgba_color[0] * 255)
-        g = int(rgba_color[1] * 255)
-        b = int(rgba_color[2] * 255)
-
-        # Format as an rgb string
-        rgb_color_string = f"rgb({r},{g},{b})"
-        color_list.append(rgb_color_string)
-
-    return color_list
-
 def do_segment_analysis(counties: list, func_classes: list, study_period: int, filtered_crashes: pd.DataFrame):
 
     crash_geometry = points(filtered_crashes['X_Coord'], filtered_crashes['Y_Coord'])
@@ -269,10 +76,6 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
     if 'All' not in func_classes:
         gdf_lines = gdf_lines[gdf_lines['AADT_Stats_2023_Table_Functional_Class'].isin(func_classes)]
 
-    print("Sample GeoDataFrame:")
-    print(gdf_lines.head())
-    print("\nGeoDataFrame CRS:", gdf_lines.crs)
-
     gdf_crashes_proj = gdf_crashes.to_crs(epsg=32618)
     gdf_lines_proj = gdf_lines.to_crs(epsg=32618)
 
@@ -280,14 +83,9 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
 
     crashes_on_multilinestrings_raw = sjoin_result[sjoin_result['distance_meters'].notna()]
     crash_counts_per_multilinestring = crashes_on_multilinestrings_raw.groupby('unique_id').size().reset_index(name='crash_count')
-    print("\nCrash Counts per MultiLineString:")
-    print(crash_counts_per_multilinestring)
 
     gdf_lines = gdf_lines.merge(crash_counts_per_multilinestring, on='unique_id', how='left')
     gdf_lines['crash_count'] = gdf_lines['crash_count'].fillna(0).astype(int) # Fill NaN with 0 for lines with no crashes
-
-    print("\nGeoDataFrame with Crash Counts:")
-    print(gdf_lines[['unique_id', 'crash_count']].head())
     
     gdf_lines['crash_rate'] = 0.0
     gdf_lines['road_length_mi'] = 0.0
@@ -379,37 +177,15 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
         title=f'Segment Analysis of {", ".join(counties)}',
         margin={"r":0,"t":40,"l":0,"b":0}
     )
-
+    
     fig = go.Figure(data=[segment_trace, crash_trace], layout=layout)
 
-    data = [
-        {'name': 'road_segments', 'data': gdf_lines},
-        {'name': 'crashes', 'data': crashes_on_multilinestrings_to_plot},
-    ]
+    data = {
+        'road_segments': gdf_lines,
+        'crashes': crashes_on_multilinestrings_to_plot
+    }
 
     return fig, data
-
-def get_ground_resolution(latitude, zoom_level):
-    """
-    Calculates the ground resolution (meters per pixel) at a given latitude and zoom level
-    for the Web Mercator projection.
-    """
-    earth_radius_meters = 6378137
-    tile_size_pixels = 256  # Standard for Mapbox/OpenStreetMap tiles
-
-    # Convert latitude to radians
-    lat_rad = math.radians(latitude)
-
-    # Calculate circumference at the given latitude
-    circumference_at_latitude = earth_radius_meters * 2 * math.pi * math.cos(lat_rad)
-
-    # Calculate the number of pixels at this zoom level if the entire world was laid out
-    # 2^zoom_level is the number of tiles along one dimension
-    total_pixels_at_zoom = tile_size_pixels * (2 ** zoom_level)
-
-    # Ground resolution in meters/pixel
-    ground_resolution = circumference_at_latitude / total_pixels_at_zoom
-    return ground_resolution
 
 def do_intersection_analysis(counties: list, county_coords: dict, func_classes: list, study_period: int, filtered_crashes: pd.DataFrame):
 
@@ -424,13 +200,17 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
     gdf_lines = gdf
     if 'All' not in counties:
         gdf_lines = gdf_lines[gdf_lines['AADT_Stats_2023_Table_County'].isin(counties)]
-    if 'All' not in func_classes:
-        gdf_lines = gdf_lines[gdf_lines['AADT_Stats_2023_Table_Functional_Class'].isin(func_classes)]
 
     # Get filtered intersection data
     gdf_intersections_list = []
-    for county in counties: gdf_intersections_list.append(get_intersections_osm(county))
+    for county in counties:
+        area = f"{county} County, New York, USA" 
+        gdf_intersections_list.append(osm.get_road_intersections(area))
     gdf_intersections = pd.concat(gdf_intersections_list, ignore_index=True)
+
+    # filter intersections by class
+    if 'All' not in func_classes:
+        gdf_intersections = gdf_intersections[gdf_intersections['class'].isin(func_classes)]
 
     # Project data into a more percise EPSG format for analysis
     gdf_crashes_proj = gdf_crashes.to_crs(epsg=32618)
@@ -559,10 +339,11 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
 
     fig = go.Figure(data=[segment_trace, intersection_trace, crash_trace], layout=layout)
     
-    data = [
-        {'name': 'road_segments', 'data': gdf_lines},
-        {'name': 'intersections', 'data': gdf_intersections},
-        {'name': 'crashes', 'data': crashes_in_intersections_to_plot},
-    ]
+    data = {
+        'road_segments': gdf_lines,
+        'intersections': gdf_intersections,
+        'crashes': crashes_in_intersections_to_plot,
+        'merged': merged_gdf
+    }
 
     return fig, data

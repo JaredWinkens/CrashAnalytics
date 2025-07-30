@@ -2989,6 +2989,6 @@ if __name__ == '__main__':
     globals()['data_by_county'] = data_by_county
 
     print("Finished loading webapp.")
-    print("127.0.0.1:8050")
+    print("127.0.0.1:8080")
 
-    app.run(port="8050", debug=True)
+    app.run(port="8080", debug=False)

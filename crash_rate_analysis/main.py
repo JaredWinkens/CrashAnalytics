@@ -11,7 +11,7 @@ from shapely.strtree import STRtree
 import osmnx as ox
 import uuid
 import crash_rate_analysis.osm as osm
-
+import plotly.colors as pcolors
 # Read the gdb file
 gdb_path = "data/NYSDOT_GDB_AADT_2023/AADT_2023.gdb"
 layers = fiona.listlayers(gdb_path)
@@ -89,16 +89,9 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
     
     gdf_lines['crash_rate'] = 0.0
     gdf_lines['road_length_mi'] = 0.0
-    segment_lats = []
-    segment_lons = []
-    segment_ids = []
-    segment_crash_rates = []
-    hover_text = []
     
     # Calculate crash rate for each segment
     for idx, row in gdf_lines.iterrows():
-        x, y = row.geometry.xy
-        
         seg_AADT = float(row['AADT_Stats_2023_Table_AADT']) # Annual Average Daily Traffic
         try: to_mile = float(row['AADT_Stats_2023_Table_To_Milepoint']) 
         except ValueError: to_mile = 0.0
@@ -109,76 +102,134 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
         crash_rate = calculate_segment_crash_rate(seg_crash_count, seg_AADT, study_period, seg_length_mi)
         gdf_lines.at[idx, 'crash_rate'] = crash_rate
         gdf_lines.at[idx, 'road_length_mi'] = seg_length_mi
-        
+
+    num_categories = 10
+
+    gdf_lines['crash_category_codes'] = pd.qcut(gdf_lines['crash_rate'], q=num_categories, duplicates='drop', labels=False)
+    actual_categories_series = gdf_lines['crash_category_codes'].dropna().astype('category')
+    actual_num_categories = len(actual_categories_series.cat.categories)
+    gdf_lines['crash_category'] = pd.qcut(gdf_lines['crash_rate'], q=num_categories,
+                                 labels=[f"Rate Bin {i+1}" for i in range(actual_num_categories)],
+                                 duplicates='drop')
+    
+    Maps_colorscale = [
+        [0.0, 'rgb(0, 153, 255)'],   # Bright Blue (very low traffic/crash)
+        [0.2, 'rgb(0, 204, 0)'],     # Green (low traffic/crash)
+        [0.5, 'rgb(255, 255, 0)'],   # Yellow (moderate traffic/crash)
+        [0.75, 'rgb(255, 128, 0)'],  # Orange (high traffic/crash)
+        [1.0, 'rgb(255, 0, 0)']      # Red (very high traffic/crash)
+    ]
+    colors_for_sampling = [item[1] for item in Maps_colorscale]
+    colors = pcolors.sample_colorscale(colors_for_sampling, samplepoints=actual_num_categories)
+    category_colors = {label: colors[i] for i, label in enumerate(gdf_lines['crash_category'].cat.categories)}
+
+    category_data = {
+        category: {'lats': [], 'lons': [], 'hover_texts': []}
+        for category in gdf_lines['crash_category'].cat.categories
+    }
+    for idx, row in gdf_lines.iterrows():
+        line_geometry = row['geometry']
+        crash_category = row['crash_category']
+        if pd.isna(crash_category):
+            continue
+        crash_rate = row['crash_rate']
+
         # Create custom hover text using other columns for this line
         hover_info = f"""
         ID: {row['unique_id']}<br>
         Description: {row['AADT_Stats_2023_Table_Description']}<br>
         Center: ({row['center_lat']:.4f}, {row['center_lon']:.4f})<br>
         Study Period (yrs): {study_period}<br>
-        Length (mi): {seg_length_mi}<br>
-        AADT: {seg_AADT}<br>
-        Total Crashes: {seg_crash_count}<br>
-        Estimated Crash Rate: {crash_rate}
+        Length (mi): {row['road_length_mi']}<br>
+        AADT: {row['AADT_Stats_2023_Table_AADT']}<br>
+        Total Crashes: {row['crash_count']}<br>
+        Estimated Crash Rate: {row['crash_rate']}
         """
-        
-        segment_lons.extend(x)
-        segment_lats.extend(y)
-        segment_ids.extend([row['unique_id']] * len(x))
-        segment_crash_rates.extend([row['crash_rate']] * len(x))
-        hover_text.extend([hover_info] * len(x))
+        for coord in line_geometry.coords:
+            category_data[crash_category]['lons'].append(coord[0])
+            category_data[crash_category]['lats'].append(coord[1])
+            category_data[crash_category]['hover_texts'].append(hover_info)
 
-        # Add None to break the line between segments
-        segment_lats.append(None)
-        segment_lons.append(None)
-        segment_crash_rates.append(None)
-        segment_ids.append(None)
-        hover_text.append(None)
+        # Add None to separate this line from the next within its category's lists
+        category_data[crash_category]['lons'].append(None)
+        category_data[crash_category]['lats'].append(None)
+        category_data[crash_category]['hover_texts'].append(None)
+ 
+    fig = go.Figure()
 
-    segment_trace = go.Scattermap(
-        lat=segment_lats,
-        lon=segment_lons,
-        mode='lines',
-        line=dict(
-            width=4, # Adjust line thickness
-            color='blue', # This is the key for coloring by crash rate
-        ),
-        text=hover_text, # Text to display on hover
-        hoverinfo='text', # Show the custom text on hover
-        name='Road Segments'
-    )
+    for category_name in gdf_lines['crash_category'].cat.categories:
+        data = category_data[category_name]
+        if data['lons']: # Only add trace if there's data for the category
+            fig.add_trace(go.Scattermap(
+                mode="lines",
+                lon=data['lons'],
+                lat=data['lats'],
+                line=dict(
+                    width=3,
+                    color=category_colors[category_name] # Single color for this trace
+                ),
+                hoverinfo="text",
+                hovertext=data['hover_texts'],
+                name=category_name, # Name for legend
+                showlegend=False
+            ))
 
     crashes_on_multilinestrings_to_plot = crashes_on_multilinestrings_raw.to_crs(epsg=4326)
     
-    crash_trace = go.Scattermap(
-        mode="markers",
-        lon=crashes_on_multilinestrings_to_plot.geometry.x,
-        lat=crashes_on_multilinestrings_to_plot.geometry.y,
-        marker=dict(
-            size=10,
-            color='red', # Highlight crashes on lines in red
-            opacity=0.9,
-            symbol='circle'
-        ),
-        #hoverinfo="text",
-        name="Crashes"
-    )
+    # crash_trace = go.Scattermap(
+    #     mode="markers",
+    #     lon=crashes_on_multilinestrings_to_plot.geometry.x,
+    #     lat=crashes_on_multilinestrings_to_plot.geometry.y,
+    #     marker=dict(
+    #         size=10,
+    #         color='black',
+    #         opacity=0.9,
+    #         symbol='circle'
+    #     ),
+    #     #hoverinfo="text",
+    #     name="Crashes"
+    # )
+    # fig.add_trace(crash_trace)
 
-    # Create the layout for the map
-    layout = go.Layout(
-        map=dict(
-            style="open-street-map", # Or "carto-positron", "stamen-terrain", "stamen-watercolor", "stamen-toner"
-            zoom=10,
-            center=go.layout.map.Center(
-                lat=gdf_lines.geometry.centroid.y.mean(),
-                lon=gdf_lines.geometry.centroid.x.mean()
+    valid_crash_rates = gdf_lines['crash_rate'].dropna()
+    min_rate_overall = valid_crash_rates.min() if not valid_crash_rates.empty else 0.0
+    max_rate_overall = valid_crash_rates.max() if not valid_crash_rates.empty else 1.0
+
+    dummy_scatter_for_colorbar = go.Scatter(
+        x=[None],
+        y=[None],
+        mode='markers',
+        marker=dict(
+            size=0,
+            color=gdf_lines['crash_rate'],
+            colorscale=Maps_colorscale,
+            cmin=min_rate_overall,
+            cmax=max_rate_overall,
+            showscale=True,
+            colorbar=dict(
+                title="Crash Rate",
+                outlinecolor="black",
+                outlinewidth=1,
+                ticks="outside",
+                ticklen=5,
+                yanchor="top", y=1,
+                xanchor="right", x=1,
+                len=0.75,
+                thickness=20
             )
         ),
-        title=f'Segment Analysis of {", ".join(counties)}',
-        margin={"r":0,"t":40,"l":0,"b":0}
+        hoverinfo='none',
+        showlegend=False
     )
-    
-    fig = go.Figure(data=[segment_trace, crash_trace], layout=layout)
+    fig.add_trace(dummy_scatter_for_colorbar)
+
+    fig.update_layout(
+        map_style="open-street-map",
+        map_zoom=10,
+        map_center={"lat": gdf_lines.geometry.centroid.y.mean(), "lon": gdf_lines.geometry.centroid.x.mean()},
+        margin={"r":0,"t":40,"l":0,"b":0},
+        legend_title_text="Crash Rate Category (Bins)"
+    )
 
     data = {
         'road_segments': gdf_lines,
@@ -187,7 +238,7 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
 
     return fig, data
 
-def do_intersection_analysis(counties: list, county_coords: dict, func_classes: list, study_period: int, filtered_crashes: pd.DataFrame):
+def do_intersection_analysis(counties: list, func_classes: list, study_period: int, filtered_crashes: pd.DataFrame):
 
     radius_feet = 250
     radius_meters = radius_feet * 0.3048
@@ -202,11 +253,11 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
         gdf_lines = gdf_lines[gdf_lines['AADT_Stats_2023_Table_County'].isin(counties)]
 
     # Get filtered intersection data
-    gdf_intersections_list = []
+    gdf_intersections_list: list[gpd.GeoDataFrame] = []
     for county in counties:
         area = f"{county} County, New York, USA" 
         gdf_intersections_list.append(osm.get_road_intersections(area))
-    gdf_intersections = pd.concat(gdf_intersections_list, ignore_index=True)
+    gdf_intersections: gpd.GeoDataFrame = pd.concat(gdf_intersections_list, ignore_index=True)
 
     # filter intersections by class
     if 'All' not in func_classes:
@@ -218,7 +269,7 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
     gdf_intersections_proj = gdf_intersections.to_crs(epsg=32618)
 
     # Get crashes within 250 feet of each intersection
-    crashes_sjoin_result = gpd.sjoin_nearest(gdf_crashes_proj, gdf_intersections_proj, how="left", max_distance=75, distance_col="distance_meters")
+    crashes_sjoin_result = gpd.sjoin_nearest(gdf_crashes_proj, gdf_intersections_proj, how="left", max_distance=radius_meters, distance_col="distance_meters")
     crashes_in_intersection_raw = crashes_sjoin_result[crashes_sjoin_result['distance_meters'].notna()]
     crash_counts_per_intersection = crashes_in_intersection_raw.groupby('node_id').size().reset_index(name='crash_count')
     gdf_intersections = gdf_intersections.merge(crash_counts_per_intersection, on='node_id', how='left')
@@ -347,3 +398,7 @@ def do_intersection_analysis(counties: list, county_coords: dict, func_classes: 
     }
 
     return fig, data
+
+# if __name__ == "__main__":
+#     # Sample Data
+#     pass

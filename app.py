@@ -2721,9 +2721,9 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
                     data=data,
                     style_cell={'textAlign': 'left'},)
             ])
-            
+
         elif analysis_type == "Intersection":
-            fig, data = crash_rate_analysis.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_crashes)
+            fig, data = crash_rate_analysis.main.do_intersection_analysis(counties_selected, func_class_selected, study_period, filtered_crashes)
             top_intersections = data['merged'].nlargest(n=10, columns='crash_rate')
             top_intersections = top_intersections.rename(columns={'node_id': 'intersection_id'})
             selected_cols = top_intersections[['intersection_id', 'DEV', 'crash_count', 'crash_rate']]
@@ -2840,7 +2840,7 @@ def download_filtered_data_tab7(n_clicks, selected_data, func_class_selected, co
                 
             elif analysis_type == "Intersection":
                 with tempfile.TemporaryDirectory() as temp_dir:
-                    fig, data = crash_rate_analysis.main.do_intersection_analysis(counties_selected, county_coordinates, func_class_selected, study_period, filtered_df)
+                    fig, data = crash_rate_analysis.main.do_intersection_analysis(counties_selected, func_class_selected, study_period, filtered_df)
                     
                     for key, val in data.items():
                         filename = key

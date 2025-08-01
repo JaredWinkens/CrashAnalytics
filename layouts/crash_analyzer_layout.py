@@ -84,6 +84,7 @@ def load_crash_analyzer_layout(available_counties,
                 html.Div(
                     id='warning_message_tab5',
                     style={'color': 'red', 'textAlign': 'center', 'margin': '10px'}
-                )
+                ),
+                dcc.Store(id='filtered_data_tab5', data=None)
             ]
         )

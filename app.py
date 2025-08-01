@@ -1,9 +1,8 @@
 import base64
 import dash
-from dash import Dash, DiskcacheManager, dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL, dash_table
+from dash import dcc, html, Input, Output, State, callback_context, ctx, clientside_callback, MATCH, ALL, dash_table
 import dash_bootstrap_components as dbc
 import datetime
-import diskcache
 import plotly.express as px
 import plotly.io as pio
 import plotly.graph_objects as go  
@@ -13,11 +12,8 @@ import sys
 import logging
 from flask_caching import Cache
 from dash.exceptions import PreventUpdate
-from shapely import wkt  
 from shapely.geometry import mapping  
 import geopandas as gpd 
-import shapely.geometry
-import numpy as np
 import math
 import json
 import subprocess
@@ -32,6 +28,10 @@ import layouts.chatbot_layout
 import layouts.crash_analyzer_layout
 import layouts.predictions_layout
 import crash_rate_analysis.main
+import dash_pannellum
+import tempfile
+import shutil
+import dash_auth
 
 ALL_FIELDS = [
     ("DEMOGIDX_5",     "Demographic Index (5-yr ACS)",        0.01),
@@ -515,6 +515,16 @@ app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheet
 app.title = 'Crash Data Analytics'
 server = app.server
 
+secret_key = base64.b64encode(os.urandom(30)).decode('utf-8')
+auth = dash_auth.BasicAuth(
+    app,
+    {
+        'winkenj': 'SunyPoly2025',
+        'karimpa': 'TrafficSafety2025'
+    },
+    secret_key=secret_key,
+)
+
 # Initialize caching
 cache = Cache(app.server, config={
     'CACHE_TYPE': 'simple'  
@@ -874,9 +884,9 @@ app.layout = html.Div([
         dcc.Tab(label='Heatmap', value='tab-2'),
         dcc.Tab(label='Census Data', value='tab-3'),
         dcc.Tab(label='Predictions', value='tab-4'),
-        dcc.Tab(label='Crash Analyzer', value='tab-5'),
+        dcc.Tab(label='Street View Analyzer', value='tab-5'),
         dcc.Tab(label='Safety ChatBot', value='tab-6'),
-        dcc.Tab(label='Crash Rate', value='tab-7')
+        dcc.Tab(label='Crash Rate Analysis', value='tab-7')
     ], style={'position': 'fixed', 'top': '0', 'left': '0', 'width': '100%', 'zIndex': '1000'}),
 
     #Dynamic Content Based on Selected Tab
@@ -1105,29 +1115,34 @@ def display_insight_popup(insight_button_n_clicks, close_button_n_clicks, fig_sn
     Output('image-popup-tab5', 'style'),
     Output('scatter_map_tab5', 'clickData'),
     Input('scatter_map_tab5', 'clickData'),
-    Input('close-popup-tab5', 'n_clicks'),     
+    Input('close-popup-tab5', 'n_clicks'),
+    State('filtered_data_tab5', 'data'),     
     prevent_initial_call=True
 )
-def display_streetview_popup(clickData, close_button_n_clicks):
+def display_streetview_popup(clickData, close_button_n_clicks, filtered_data):
     triggered_id = ctx.triggered_id
      
     # If the close button was clicked
     if triggered_id == 'close-popup-tab5' and close_button_n_clicks is not None:
-        print("Close button clicked, hiding popup.")
         return None, {'display': 'none'}, None
     
     if triggered_id == 'scatter_map_tab5':
-        print(f"Click data {clickData}.")    
+        
         lon = clickData['points'][0]['lon']
         lat = clickData['points'][0]['lat']
-        crash_info = clickData['points'][0]['customdata']
-        caseNumber = crash_info[0]
         location_name = streetview.get_location_name(lat, lon)
+        
+        image_meta = streetview.get_street_view_image_metadata(lat, lon)
 
+        image_bytes = streetview.stitch_street_view_images_from_lat_lon(lat, lon, [0, 45, 90, 135, 180, 225, 270, 315], "640x640", 90,".png")
+        data_uri = streetview.encode_image_to_base64_data_uri(image_bytes, format="png")
+
+        caseNumber = clickData['points'][0]['customdata'][0]
         crash = data_final_df.query(f"Case_Number == '{caseNumber}'")
-        print(crash)
-        image = streetview.get_street_view_image(lat, lon)
-        analysis = streetview.analyze_image_ai(image.content, crash.to_string())
+
+        historical_data = streetview.get_historical_crash_data(77, lat, lon, pd.DataFrame(filtered_data))
+        
+        analysis = streetview.analyze_image_ai(image_bytes, image_meta, crash.to_string(), historical_data.to_string())
 
         popup_style = {
             'display': 'block',
@@ -1139,18 +1154,36 @@ def display_streetview_popup(clickData, close_button_n_clicks):
             'backgroundColor': 'white',
             'border': '1px solid black',
             'padding': '10px',
-            'maxWidth': '640px',
+            'width': '840px',
             'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
         }
         image_element = html.Div([
             html.H2(location_name),
             html.Button(html.I(className="fa fa-window-close"), id="close-popup-tab5",className="close-popup-button", n_clicks=0),
-            dcc.Markdown(analysis, style={'maxWidth': '640px'}),
-            html.Img(src=image.url, style={'maxWidth': '640px', 'maxHeight': '640px'})
+            dcc.Markdown(analysis),
+            dash_pannellum.DashPannellum(
+                id='partial-panorama-component',
+                tour={
+                    "default": {
+                        "firstScene": "scene1",
+                        "sceneFadeDuration": 1000
+                    },
+                    "scenes": {
+                        "scene1": {
+                            "hfov": 110,
+                            "pitch": -3,
+                            "yaw": 117,
+                            "type": "equirectangular",
+                            "panorama": data_uri
+                        }
+                    }
+                },
+                width='100%',
+                height='400px',
+            )
         ])
         print(f"Displaying popup for {location_name}.")
         return image_element, popup_style, None
-
     # Fallback or initial state
     print("No valid trigger for display/hide, returning no_update.")
     return dash.no_update, dash.no_update, None
@@ -2495,12 +2528,13 @@ def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_pat
     ])
 
 # ----------------------------
-# 7.6. Callback for Crash Analyzer Tab (tab5)
+# 7.6. Callback for Street View Analyzer Tab (tab5)
 # ----------------------------
 @app.callback(
     [
         Output('scatter_map_tab5', 'figure'),
-        Output('scatter_map_tab5', 'selectedData')
+        Output('scatter_map_tab5', 'selectedData'),
+        Output('filtered_data_tab5', 'data')
     ],
     [
         Input('apply_filter_tab5', 'n_clicks'),
@@ -2553,7 +2587,7 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         )
         fig.update_traces(marker=dict(opacity=0))
         fig.update_layout(uirevision=key)
-        return fig, None
+        return fig, None, None
 
     # apply filters
     if triggered == 'apply_filter_tab5':
@@ -2610,16 +2644,17 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         fig.update_layout(map_center={'lat': lat_center, 'lon': lon_center})
 
     fig.update_layout(uirevision=key)
-    return fig, out_selected
+    return fig, out_selected, df_to_plot.to_dict()
 
 # ----------------------------
-# 7.6. Callback for Crash Analyzer Tab (tab7)
+# 7.6. Callback for Crash Rate Tab (tab7)
 # ----------------------------
 @app.callback(
     [
         Output('scatter_map_tab7', 'figure'),
         Output('scatter_map_tab7', 'selectedData'),
-        Output('crash-rate-content', 'children')
+        Output('crash-rate-content', 'children'),
+        Output('filtered_data_tab7', 'data')
     ],
     [
         Input('apply_filter_tab7', 'n_clicks'),
@@ -2692,7 +2727,7 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
             margin={"r":0,"t":0,"l":0,"b":0},
         )
         fig.update_layout(uirevision=key)
-        return fig, None, None
+        return fig, None, None, None
     
     # apply filters
     if triggered == 'apply_filter_tab7':
@@ -2710,29 +2745,31 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
 
         if analysis_type == "Segment":
             fig, data = crash_rate_analysis.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_crashes)
-            top_segments = data['road_segments'].nlargest(n=10, columns='crash_rate')
+            top_segments = gpd.read_file(data['road_segments'])
+            top_segments = top_segments.nlargest(n=10, columns='crash_rate')
             top_segments = top_segments.rename(columns={'AADT_Stats_2023_Table_Description': 'description', 'AADT_Stats_2023_Table_AADT': 'AADT'})
             selected_cols = top_segments[['unique_id', 'description', 'AADT', 'road_length_mi', 'crash_count', 'crash_rate']]
-            data = selected_cols.to_dict('records')
+            table_data = selected_cols.to_dict('records')
             table = html.Div([
                 html.H1('Top 10 Segments', style={'margin-top': '10px'}),
                 dash_table.DataTable(
                     id='crash-rate-table',
-                    data=data,
+                    data=table_data,
                     style_cell={'textAlign': 'left'},)
             ])
 
         elif analysis_type == "Intersection":
             fig, data = crash_rate_analysis.main.do_intersection_analysis(counties_selected, func_class_selected, study_period, filtered_crashes)
-            top_intersections = data['merged'].nlargest(n=10, columns='crash_rate')
+            top_intersections = gpd.read_file(data['intersections'])
+            top_intersections = top_intersections.nlargest(n=10, columns='crash_rate')
             top_intersections = top_intersections.rename(columns={'node_id': 'intersection_id'})
             selected_cols = top_intersections[['intersection_id', 'DEV', 'crash_count', 'crash_rate']]
-            data = selected_cols.to_dict('records')
+            table_data = selected_cols.to_dict('records')
             table = html.Div([
                 html.H1('Top 10 Intersections', style={'margin-top': '10px'}),
                 dash_table.DataTable(
                     id='crash-rate-table',
-                    data=data,
+                    data=table_data,
                     style_cell={'textAlign': 'left'},)
             ])
         out_selected = selected_data
@@ -2762,95 +2799,39 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
             title="MultiLineStrings from GeoDataFrame"
         )
         fig.update_layout(uirevision=key)
-        return fig, None, None   
+        return fig, None, None, None   
 
     fig.update_layout(uirevision=key)
-    return fig, out_selected, table
+    return fig, out_selected, table, data
 
-# Callback to Download Filtered Data in Data Downloader Tab (tab1)
+# Callback to Download Shapefile in Crash Rate Tab (tab7)
 @app.callback(
     Output('download_data_tab7', 'data'),
     [
         Input('export_shapefile_tab7', 'n_clicks')
     ],
     [
-        State('scatter_map_tab7', 'selectedData'),
-        State('select_functional_class_tab7', 'value'),
-        State('county_selector_tab7', 'value'),
-        State('date_picker_tab7', 'start_date'),
-        State('date_picker_tab7', 'end_date'),
-        State('time_slider_tab7', 'value'),
-        State('day_of_week_checklist_tab7', 'value'),
-        State('weather_selector_tab7', 'value'),
-        State('light_selector_tab7', 'value'),
-        State('road_surface_selector_tab7', 'value'),
-        State('severity_selector_tab7','value'),
-        State('data_type_selector_main_tab7', 'value'),
-        State('data_type_selector_vru_tab7', 'value'),
-        State('crash_type_selector_tab7','value'),
-        State('analysis_selector_tab7', 'value')
+        State('analysis_selector_tab7', 'value'),
+        State('filtered_data_tab7', 'data'),
     ],
     prevent_initial_call=True
 )
 
-def download_filtered_data_tab7(n_clicks, selected_data, func_class_selected, counties_selected,
-            start_date, end_date, time_range, days_of_week, weather, light, road_surface, severity_category, 
-            main_data_type, vru_data_type, crash_type, analysis_type):
-    if n_clicks > 0:
+def download_filtered_data_tab7(n_clicks, analysis_type, shapefile_data):
+    if n_clicks > 0 and shapefile_data != None:
         try:
-            # Load full data for the selected counties.
-            df = get_county_data(counties_selected)
-            if df.empty:
-                logger.warning(f"No data available to download for counties: {counties_selected}")
-                raise PreventUpdate
+            with tempfile.TemporaryDirectory() as temp_dir:
 
-            # Apply the same filters as in update_map_tab1.
-            filtered_df = filter_data_tab1(
-                df, start_date, end_date, time_range,
-                days_of_week, weather, light, road_surface,  severity_category, crash_type,
-                main_data_type, vru_data_type, 
-            )
+                for key, val in shapefile_data.items():
+                    filename = key
+                    filepath = os.path.join(temp_dir, filename)
+                    gdf = gpd.read_file(val)
+                    gdf.to_file(filepath, driver='ESRI Shapefile')
 
-            format_string = "%Y-%m-%d"
-            min_year = datetime.datetime.strptime(start_date, format_string).year
-            max_year = datetime.datetime.strptime(end_date, format_string).year
-            selected_years = list(range(min_year, max_year + 1))
-            study_period = len(selected_years)
-
-            import uuid
-            import tempfile
-            from pathlib import Path
-            import shutil
-            import zipfile
-            filename = f"my_shapefile_{uuid.uuid4()}.shp"
-
-            if analysis_type == "Segment":
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    fig, data = crash_rate_analysis.main.do_segment_analysis(counties_selected, func_class_selected, study_period, filtered_df)
-
-                    for key, val in data.items():
-                        filename = key
-                        filepath = os.path.join(temp_dir, filename)
-                        val.to_file(filepath, driver='ESRI Shapefile')
-
-                    zip_file_name = "segment_analysis.zip"
-                    zip = shutil.make_archive(zip_file_name.split('.')[0], 'zip', temp_dir)
-
-                    return dcc.send_file(zip)
+                zip_file_name = 'crash_rate_analysis.zip'
+                zip = shutil.make_archive(zip_file_name.split('.')[0], 'zip', temp_dir)
                 
-            elif analysis_type == "Intersection":
-                with tempfile.TemporaryDirectory() as temp_dir:
-                    fig, data = crash_rate_analysis.main.do_intersection_analysis(counties_selected, func_class_selected, study_period, filtered_df)
-                    
-                    for key, val in data.items():
-                        filename = key
-                        filepath = os.path.join(temp_dir, filename)
-                        val.to_file(filepath, driver='ESRI Shapefile')
-
-                    zip_file_name = "intersection_analysis.zip"
-                    zip = shutil.make_archive(zip_file_name.split('.')[0], 'zip', temp_dir)
-
-                    return dcc.send_file(zip)
+                return dcc.send_file(zip)
                 
             # # If a box selection exists, further filter by the selected points.
             # if selected_data and 'points' in selected_data and selected_data['points']:
@@ -2983,6 +2964,10 @@ if __name__ == '__main__':
     available_road_classes.sort()
 
     available_intersection_classes = ['2-way', '3-way', '4-way', '5-way', '6-way', '7-way', '8-way']
+
+    # geometry = points(data_final_df['X_Coord'], data_final_df['Y_Coord'])
+    # data_final_gdf = gpd.GeoDataFrame(data_final_df, geometry=geometry, crs="EPSG:4326")
+    # logger.debug(f"Geodataframe created for final data: \n{data_final_gdf.head()}")
 
     globals()['county_coordinates'] = county_coordinates
     globals()['census_polygons_by_county'] = census_polygons_by_county

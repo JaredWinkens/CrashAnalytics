@@ -111,6 +111,7 @@ def load_crash_rate_layout(available_counties,
                     html.Div(
                         id='warning_message_tab7',
                         style={'color': 'red', 'textAlign': 'center', 'margin': '10px'}
-                    )
+                    ),
+                    dcc.Store(id='filtered_data_tab7', data=None)
                 ]
             )

@@ -12,6 +12,8 @@ import osmnx as ox
 import uuid
 import crash_rate_analysis.osm as osm
 import plotly.colors as pcolors
+from datetime import datetime
+
 # Read the gdb file
 gdb_path = "data/NYSDOT_GDB_AADT_2023/AADT_2023.gdb"
 layers = fiona.listlayers(gdb_path)
@@ -67,24 +69,29 @@ def calculate_segment_crash_rate(num_crashes_on_seg: int, AADT: float, years: in
 
 def do_segment_analysis(counties: list, func_classes: list, study_period: int, filtered_crashes: pd.DataFrame):
 
+    # Convert filtered crashes into GeoDataFrame
     crash_geometry = points(filtered_crashes['X_Coord'], filtered_crashes['Y_Coord'])
     gdf_crashes = gpd.GeoDataFrame(filtered_crashes, geometry=crash_geometry, crs="EPSG:4326")
+    gdf_crashes = gdf_crashes.drop('Crash_Time', axis=1)
+    gdf_crashes = gdf_crashes.drop('Crash_Date', axis=1)
 
+    # Get filted line segements
     gdf_lines = gdf
     if 'All' not in counties:
         gdf_lines = gdf_lines[gdf_lines['AADT_Stats_2023_Table_County'].isin(counties)]
     if 'All' not in func_classes:
         gdf_lines = gdf_lines[gdf_lines['AADT_Stats_2023_Table_Functional_Class'].isin(func_classes)]
 
-    gdf_crashes_proj = gdf_crashes.to_crs(epsg=32618)
-    gdf_lines_proj = gdf_lines.to_crs(epsg=32618)
+    # Project to a crs that uses meters
+    gdf_crashes_proj = gdf_crashes.to_crs("EPSG:3857")
+    gdf_lines_proj = gdf_lines.to_crs("EPSG:3857")
 
     sjoin_result = gpd.sjoin_nearest(gdf_crashes_proj, gdf_lines_proj, how="left", max_distance=10, distance_col="distance_meters")
 
-    crashes_on_multilinestrings_raw = sjoin_result[sjoin_result['distance_meters'].notna()]
-    crash_counts_per_multilinestring = crashes_on_multilinestrings_raw.groupby('unique_id').size().reset_index(name='crash_count')
+    crashes_on_segments_raw = sjoin_result[sjoin_result['distance_meters'].notna()]
+    crash_counts_per_segment = crashes_on_segments_raw.groupby('unique_id').size().reset_index(name='crash_count')
 
-    gdf_lines = gdf_lines.merge(crash_counts_per_multilinestring, on='unique_id', how='left')
+    gdf_lines = gdf_lines.merge(crash_counts_per_segment, on='unique_id', how='left')
     gdf_lines['crash_count'] = gdf_lines['crash_count'].fillna(0).astype(int) # Fill NaN with 0 for lines with no crashes
     
     gdf_lines['crash_rate'] = 0.0
@@ -174,7 +181,7 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
                 showlegend=False
             ))
 
-    crashes_on_multilinestrings_to_plot = crashes_on_multilinestrings_raw.to_crs(epsg=4326)
+    crashes_on_multilinestrings_to_plot = crashes_on_segments_raw.to_crs("EPSG:4326")
     
     # crash_trace = go.Scattermap(
     #     mode="markers",
@@ -222,7 +229,7 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
         showlegend=False
     )
     fig.add_trace(dummy_scatter_for_colorbar)
-
+    
     fig.update_layout(
         map_style="open-street-map",
         map_zoom=10,
@@ -230,10 +237,11 @@ def do_segment_analysis(counties: list, func_classes: list, study_period: int, f
         margin={"r":0,"t":40,"l":0,"b":0},
         legend_title_text="Crash Rate Category (Bins)"
     )
-
+    gdf_lines_json = gdf_lines.to_json()
+    gdf_crashes_json = crashes_on_multilinestrings_to_plot.to_json()
     data = {
-        'road_segments': gdf_lines,
-        'crashes': crashes_on_multilinestrings_to_plot
+        'road_segments': gdf_lines_json,
+        'crashes': gdf_crashes_json
     }
 
     return fig, data
@@ -246,6 +254,8 @@ def do_intersection_analysis(counties: list, func_classes: list, study_period: i
     # Get filtered crash data
     crash_geometry = points(filtered_crashes['X_Coord'], filtered_crashes['Y_Coord'])
     gdf_crashes = gpd.GeoDataFrame(filtered_crashes, geometry=crash_geometry, crs="EPSG:4326")
+    gdf_crashes = gdf_crashes.drop('Crash_Time', axis=1)
+    gdf_crashes = gdf_crashes.drop('Crash_Date', axis=1)
 
     # Get filtered segment data
     gdf_lines = gdf
@@ -264,58 +274,79 @@ def do_intersection_analysis(counties: list, func_classes: list, study_period: i
         gdf_intersections = gdf_intersections[gdf_intersections['class'].isin(func_classes)]
 
     # Project data into a more percise EPSG format for analysis
-    gdf_crashes_proj = gdf_crashes.to_crs(epsg=32618)
-    gdf_lines_proj = gdf_lines.to_crs(epsg=32618)
-    gdf_intersections_proj = gdf_intersections.to_crs(epsg=32618)
+    gdf_crashes_proj = gdf_crashes.to_crs("EPSG:3857")
+    gdf_lines_proj = gdf_lines.to_crs("EPSG:3857")
+    gdf_intersections_proj = gdf_intersections.to_crs("EPSG:3857")
 
-    # Get crashes within 250 feet of each intersection
-    crashes_sjoin_result = gpd.sjoin_nearest(gdf_crashes_proj, gdf_intersections_proj, how="left", max_distance=radius_meters, distance_col="distance_meters")
-    crashes_in_intersection_raw = crashes_sjoin_result[crashes_sjoin_result['distance_meters'].notna()]
-    crash_counts_per_intersection = crashes_in_intersection_raw.groupby('node_id').size().reset_index(name='crash_count')
-    gdf_intersections = gdf_intersections.merge(crash_counts_per_intersection, on='node_id', how='left')
-    gdf_intersections['crash_count'] = gdf_intersections['crash_count'].fillna(0).astype(int) # Fill NaN with 0 for lines with no crashes
-    crashes_in_intersections_to_plot = crashes_in_intersection_raw.to_crs(epsg=4326)
+    # Create a buffer of 250 feet around each intersection
+    intersection_buffers = gdf_intersections_proj.buffer(radius_meters)
+    intersection_buffers_gdf = gpd.GeoDataFrame(gdf_intersections_proj, geometry=intersection_buffers, crs="EPSG:3857")
+    
+    # Get crashes within each intersection
+    crashes_within_buffers = gpd.sjoin(gdf_crashes_proj, intersection_buffers_gdf, how='inner', predicate='intersects')
+    #crash_counts = crashes_within_buffers.groupby('node_id').size().reset_index(name='crash_count')
+    crash_analysis = crashes_within_buffers.groupby('node_id').agg(
+        crash_count=('Case_Number', 'size'),
+        crash_ids=('Case_Number', list)
+    ).reset_index()
+    
+    segments_within_buffers = gpd.sjoin(gdf_lines_proj, intersection_buffers_gdf, how="inner", predicate="intersects")
+    #segment_counts = segments_within_buffers.groupby('node_id').size().reset_index(name='segment_count')
+    segment_analysis = segments_within_buffers.groupby('node_id').agg(
+        segment_count=('unique_id', 'size'),
+        segment_ids=('unique_id', list)
+    ).reset_index()
+    
+    final_intersections_gdf = gdf_intersections_proj.merge(crash_analysis, on='node_id', how='left')
+    final_intersections_gdf = final_intersections_gdf.merge(segment_analysis, on='node_id', how='left')
+    
+    final_intersections_gdf['crash_count'] = final_intersections_gdf['crash_count'].fillna(0).astype(int)
+    final_intersections_gdf['segment_count'] = final_intersections_gdf['segment_count'].fillna(0).astype(int)
 
-    # Get road segments inside each intersection
-    intersections_buffered = gdf_intersections_proj.copy()
-    intersections_buffered['geometry'] = intersections_buffered.geometry.buffer(radius_meters)
-    joined_gdf = gpd.sjoin(gdf_lines_proj, intersections_buffered, how="inner", predicate="intersects")
-    segment_ids_per_intersection = (joined_gdf.groupby(joined_gdf.index_right)['AADT_Stats_2023_Table_AADT'].apply(lambda x: list(x)).reset_index(name='nearby_segments_AADT'))
-    intersections_gdf_with_segments = gdf_intersections.copy()
-    intersections_gdf_with_segments['original_index'] = intersections_gdf_with_segments.index
-    merged_gdf = pd.merge(intersections_gdf_with_segments,segment_ids_per_intersection,left_on='original_index',right_on='index_right',how='left')
-    merged_gdf = merged_gdf.drop(columns=['original_index', 'index_right'])
-    merged_gdf['nearby_segments_AADT'] = merged_gdf['nearby_segments_AADT'].apply(lambda x: x if isinstance(x, list) else [])
+    # For the lists, we fill NaN with an empty list
+    final_intersections_gdf['crash_ids'] = final_intersections_gdf['crash_ids'].apply(lambda x: x if isinstance(x, list) else [])
+    final_intersections_gdf['segment_ids'] = final_intersections_gdf['segment_ids'].apply(lambda x: x if isinstance(x, list) else [])
 
-    merged_gdf['DEV'] = 0.0
-    merged_gdf['crash_rate'] = 0.0
+    #crashes_in_intersections_to_plot = crashes_within_buffers.to_crs("EPSG:4326")
 
-    hover_text = []
+    final_intersections_gdf['DEV'] = 0.0
+    final_intersections_gdf['crash_rate'] = 0.0
+
+    hover_text_intersection = []
     # Get crash rate for every intersection
-    for idx, row in merged_gdf.iterrows():
-        int_crash_count = row['crash_count']
-        segs_AADT = row['nearby_segments_AADT']
+    for idx, row in final_intersections_gdf.iterrows():
+        crash_count = row['crash_count']
+        seg_count = row['segment_count']
+        crash_ids = row['crash_ids']
+        seg_ids = row['segment_ids']
+
+        segs_df = gdf_lines[gdf_lines['unique_id'].isin(seg_ids)]
+        segs_AADT = segs_df['AADT_Stats_2023_Table_AADT'].to_list()
+
         if len(segs_AADT) == 0: int_DEV = 0.0
         else: int_DEV = sum(segs_AADT) / len(segs_AADT) # Daily Entering Volume (Average AADT of all segments inside intersection)
-        merged_gdf.at[idx, 'DEV'] = int_DEV
+        final_intersections_gdf.at[idx, 'DEV'] = int_DEV
 
-        crash_rate = calculate_intersection_crash_rate(int_crash_count, int_DEV, study_period)
-        merged_gdf.at[idx, 'crash_rate'] = crash_rate
+        crash_rate = calculate_intersection_crash_rate(crash_count, int_DEV, study_period)
+        final_intersections_gdf.at[idx, 'crash_rate'] = crash_rate
 
         hover_info = f"""
         ID: {row['node_id']}<br>
         Coords: ({row['latitude']:.4f}, {row['longitude']:.4f})<br>
         Study Period (yrs): {study_period}<br>
         DEV: {int_DEV}<br>
-        Total Crashes: {int_crash_count}<br>
+        Total Crashes: {crash_count}<br>
+        Crash IDs: {crash_ids}<br>
+        Total Segments: {seg_count}<br>
+        Segment IDs: {seg_ids}<br>
         Estimated Crash Rate: {crash_rate}
         """
 
-        hover_text.append(hover_info)
+        hover_text_intersection.append(hover_info)
 
     all_lons = []
     all_lats = []
-    hover_texts = [] # To store custom hover text
+    hover_text_segment = [] # To store custom hover text
 
     for idx, row in gdf_lines.iterrows():
         # Get the MultiLineString geometry for the current row
@@ -330,17 +361,17 @@ def do_intersection_analysis(counties: list, func_classes: list, study_period: i
         x, y = segment.xy
         all_lons.extend(x)
         all_lats.extend(y)
-        hover_texts.extend([hover_info] * len(x))
+        hover_text_segment.extend([hover_info] * len(x))
         all_lons.append(None)
         all_lats.append(None)
-        hover_texts.append(None) # Keep hover_texts aligned
+        hover_text_segment.append(None) # Keep hover_texts aligned
 
     segment_trace = go.Scattermap(
         mode="lines",
         lon=all_lons,
         lat=all_lats,
         hoverinfo="text",
-        hovertext=hover_texts, # Use the custom hover text
+        hovertext=hover_text_segment, # Use the custom hover text
         line=dict(width=2, color='green'), # Set a default color for all lines
         name="Road Segments"
     )
@@ -356,24 +387,25 @@ def do_intersection_analysis(counties: list, func_classes: list, study_period: i
             symbol='circle',
         ),
         hoverinfo="text",
-        hovertext=hover_text,
+        hovertext=hover_text_intersection,
         name="Intersections"
     )
 
     crash_trace = go.Scattermap(
         mode="markers",
-        lon=crashes_in_intersections_to_plot.geometry.x,
-        lat=crashes_in_intersections_to_plot.geometry.y,
+        lon=gdf_crashes.geometry.x,
+        lat=gdf_crashes.geometry.y,
         marker=dict(
             size=10,
             color='red', # Highlight crashes on lines in red
             opacity=0.9,
             symbol='circle'
         ),
-        #hoverinfo="text",
+        hoverinfo="text",
         name="Crashes in Intersection"
     )
 
+    intersection_buffers_gdf_wgs84 = intersection_buffers_gdf.to_crs("EPSG:4326")
     # Create the layout for the map
     layout = go.Layout(
         map=dict(
@@ -382,7 +414,16 @@ def do_intersection_analysis(counties: list, func_classes: list, study_period: i
             center=go.layout.map.Center(
                 lat=gdf_lines.geometry.centroid.y.mean(),
                 lon=gdf_lines.geometry.centroid.x.mean()
-            )
+            ),
+            # layers=[
+            #     {
+            #         "below": 'traces',
+            #         "sourcetype": "geojson",
+            #         "source": intersection_buffers_gdf_wgs84.__geo_interface__, # Convert GeoDataFrame to GeoJSON dict
+            #         "type": "fill",
+            #         "color": "rgba(0,100,0,0.3)" # Green with some transparency
+            #     }
+            # ]
         ),
         title=f'Intersection Analysis of {", ".join(counties)}',
         margin={"r":0,"t":40,"l":0,"b":0}
@@ -390,15 +431,14 @@ def do_intersection_analysis(counties: list, func_classes: list, study_period: i
 
     fig = go.Figure(data=[segment_trace, intersection_trace, crash_trace], layout=layout)
     
+    gdf_lines_json = gdf_lines.to_json()
+    gdf_crashes_json = gdf_crashes.to_json()
+    final_intersections_gdf_json = final_intersections_gdf.to_json()
+
     data = {
-        'road_segments': gdf_lines,
-        'intersections': gdf_intersections,
-        'crashes': crashes_in_intersections_to_plot,
-        'merged': merged_gdf
+        'road_segments': gdf_lines_json,
+        'crashes': gdf_crashes_json,
+        'intersections': final_intersections_gdf_json,
     }
 
     return fig, data
-
-# if __name__ == "__main__":
-#     # Sample Data
-#     pass

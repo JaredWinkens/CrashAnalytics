@@ -38,7 +38,7 @@ def query_roads(area_id):
     [out:json][timeout:60];
     area({area_id})->.searchArea;
     (
-      way["highway"](area.searchArea);
+        way(area.searchArea)[highway~"^(motorway|trunk|primary|secondary|tertiary|residential)$"];
     );
     out body;
     >;
@@ -87,6 +87,7 @@ def get_road_intersections(area_name):
     overpass_data = query_roads(area_id)
     print("Extracting and classifying intersections...")
     intersections_gdf = extract_intersections(overpass_data)
+    print(intersections_gdf)
     return intersections_gdf
 
 

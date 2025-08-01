@@ -1,133 +1,24 @@
-from google import genai
-from google.genai import types
-from google.genai.errors import ServerError
-import pandas as pd
-from pydantic import BaseModel
-import json
-from shapely import points, Point
-import geopandas as gpd
-import requests
 import base64
 import cv2
 import numpy as np
+import requests
 
 # --- Configuration ---
-# load config settings
-config_file = open("config.json", "r")
-config = json.load(config_file)
-API_KEY = config['general']['api_key'] 
-GEN_MODEL = config['models']['2.5-flash']
+GOOGLE_API_KEY = "AIzaSyAcklfCnR8BAJ8EAmRABgDoNdCJIfgpWA0"  # Replace with your actual API key
+LAT = 40.7128  # Example: New York City
+LON = -74.0060
 
-client = genai.Client(api_key=API_KEY)
-ANALYZER_ROLE = """
-You are a traffic safety analyst. 
-
-Keep your analysis brief (aim for ~300 tokens).
-
-"""
-class Insight(BaseModel):
-    analysis: str
-
-def format_response(response: Insight) -> str:
-    return f"""
-    **Analysis:** {response.analysis}
-    """
-
-def analyze_image_ai(image_bytes, image_metadata, crash_info, historical_data):
-    try:
-        response = client.models.generate_content(
-            model=GEN_MODEL,
-            config=types.GenerateContentConfig(
-                system_instruction=ANALYZER_ROLE,
-                temperature=0,
-                response_mime_type="application/json",
-                response_schema=Insight,
-            ),
-            contents=[
-                types.Part.from_bytes(
-                    data=image_bytes,
-                    mime_type='image/png'
-                ),
-                f"""
-                A crash occured at the location in the attached 360 degree panoramic image.
-
-                Note: The attached picture is not the actual picture of the crash scene.
-
-                I am providing you with the following information to aid your analysis:
-                1. The image metadata:
-                {image_metadata}
-                2. Details about the crash:
-                {crash_info}
-                3. Details about crashes in the surrounding area (77 meter radius)
-                {historical_data}
-                
-                Given all this information see if you can draw any insights into the influence that the surrounding infrastructure/environment had on the crash.
-                """
-            ]
-        )
-        myinsights: Insight = response.parsed
-        formatted_response = format_response(response=myinsights)
-        return formatted_response
-    except ServerError as e:
-        raise e
-    except Exception as e:
-        raise e
-
-def get_historical_crash_data(search_radius_meters: float, query_lat: float, query_lon: float, data: pd.DataFrame):
-    
-    geometry = points(data['X_Coord'], data['Y_Coord'])
-    gdf = gpd.GeoDataFrame(data, geometry=geometry, crs="EPSG:4326")
-
-    given_point_lat = query_lat
-    given_point_lon = query_lon
-    given_point = Point(given_point_lon, given_point_lat)
-    given_point_gdf = gpd.GeoDataFrame(geometry=[given_point], crs="EPSG:4326")
-
-    radius_meters = search_radius_meters
-
-    gdf_projected = gdf.to_crs("EPSG:3857")
-    given_point_projected = given_point_gdf.to_crs("EPSG:3857")
-
-    buffer_polygon = given_point_projected.geometry.buffer(radius_meters).unary_union
-
-    points_within_radius = gdf_projected[gdf_projected.intersects(buffer_polygon)]
-
-    points_within_radius_original_crs = points_within_radius.to_crs("EPSG:4326")
-
-    return points_within_radius_original_crs
-
-def get_location_name(latitude, longitude):
-    """
-    Retrieves the location name (address) from latitude and longitude using Nominatim.
-
-    Args:
-        latitude: The latitude coordinate.
-        longitude: The longitude coordinate.
-
-    Returns:
-        A string containing the location name (address) if found, or None if not found.
-    """
-    url = f"https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={latitude}&lon={longitude}&limit=1"
-    headers = {
-        'User-Agent': 'RoadSafetyChatbot/1.0 (winkenj@sunypoly.edu)' # Important: Provide a meaningful User-Agent
-    }
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-        data = response.json()
-        if 'display_name' in data:
-            return data['display_name']
-        else:
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error during API request: {e}")
-        return None
+# Adjust these for optimal stitching
+# More headings mean more images, better overlap, but more requests and processing
+HEADINGS = [0, 45, 90, 135, 180, 225, 270, 315]
+FOV_VALUE = 90 # Field of View
+IMAGE_SIZE = "640x640" # Max allowed by Google Street View Static API for free tier is typically 640x640
 
 def get_street_view_image_metadata(latitude, longitude):
     """
     Fetches a single Google Street View image and returns its metadata.
     """
-    metadata_url = f"https://maps.googleapis.com/maps/api/streetview/metadata?location={latitude},{longitude}&key={API_KEY}"
+    metadata_url = f"https://maps.googleapis.com/maps/api/streetview/metadata?location={latitude},{longitude}&key={GOOGLE_API_KEY}"
     try:
         response = requests.get(metadata_url)
         response.raise_for_status()  # Raise an exception for HTTP errors
@@ -135,7 +26,8 @@ def get_street_view_image_metadata(latitude, longitude):
     except requests.exceptions.RequestException as e:
         print(f"Error: {e}")
         return None
-    
+
+
 def get_street_view_image_bytes(latitude, longitude, heading, size="640x480", fov=90, pitch=0):
     """
     Fetches a single Google Street View image and returns its bytes.
@@ -147,7 +39,7 @@ def get_street_view_image_bytes(latitude, longitude, heading, size="640x480", fo
         "heading": heading,
         "fov": fov,
         "pitch": pitch,
-        "key": API_KEY
+        "key": GOOGLE_API_KEY
     }
     try:
         response = requests.get(base_url, params=params)
@@ -244,3 +136,33 @@ def encode_image_to_base64_data_uri(image_bytes, format="jpeg"):
     """
     base64_encoded_image = base64.b64encode(image_bytes).decode('utf-8')
     return f"data:image/{format};base64,{base64_encoded_image}"
+    
+# --- Main execution ---
+if __name__ == "__main__":
+    print("Starting panorama generation...")
+    panoramic_image_bytes = stitch_street_view_images_from_lat_lon(
+        LAT, LON, HEADINGS, IMAGE_SIZE, FOV_VALUE, output_format=".png"
+    )
+
+    if panoramic_image_bytes:
+        print(f"Successfully generated panoramic image bytes. Size: {len(panoramic_image_bytes)} bytes")
+
+        # Example: If you want to save it to a file temporarily to verify
+        # In a real application, you would pass these bytes to another function,
+        # return them from an API endpoint, or display them in memory.
+        temp_output_filename = "in_memory_stitched_panorama.jpg"
+        with open(temp_output_filename, "wb") as f:
+            f.write(panoramic_image_bytes)
+        print(f"Temporary saved for verification: {temp_output_filename}")
+
+        # Optional: Display the image using OpenCV (if you have a display environment)
+        # You'd decode it again from bytes for display
+        np_arr = np.frombuffer(panoramic_image_bytes, np.uint8)
+        display_img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if display_img is not None:
+            cv2.imshow("Generated Panoramic Image", display_img)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+    else:
+        print("Failed to generate panoramic image bytes.")

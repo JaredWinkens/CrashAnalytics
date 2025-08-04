@@ -10,7 +10,7 @@
     .responsive-controls {
       /* Increase controls width on desktop */
       flex: 0 0 400px;  
-      padding: 10px 20px;
+      padding: 10px 10px;
       box-sizing: border-box;
     }
     .responsive-graph {

@@ -1,7 +1,8 @@
 from app_instance import app, data_final_df, logger, get_county_data, county_coordinates
 from dash import ctx, html, dcc, Input, Output, State, callback_context
+import dash_bootstrap_components as dbc
 from utils import helper_functions
-import crash_street_view.streetview_analyzer as streetview
+import streetview_analyzer.streetview_analyzer as streetview
 import dash_pannellum
 import dash
 import pandas as pd
@@ -9,19 +10,14 @@ import plotly.express as px
 
 @app.callback(
     Output('image-popup-tab5', 'children'),
-    Output('image-popup-tab5', 'style'),
+    Output('image-popup-tab5', 'is_open'),
     Output('scatter_map_tab5', 'clickData'),
     Input('scatter_map_tab5', 'clickData'),
-    Input('close-popup-tab5', 'n_clicks'),
     State('filtered_data_tab5', 'data'),     
     prevent_initial_call=True
 )
-def display_streetview_popup(clickData, close_button_n_clicks, filtered_data):
+def display_streetview_popup(clickData, filtered_data):
     triggered_id = ctx.triggered_id
-     
-    # If the close button was clicked
-    if triggered_id == 'close-popup-tab5' and close_button_n_clicks is not None:
-        return None, {'display': 'none'}, None
     
     if triggered_id == 'scatter_map_tab5':
         
@@ -41,49 +37,37 @@ def display_streetview_popup(clickData, close_button_n_clicks, filtered_data):
         
         analysis = streetview.analyze_image_ai(image_bytes, image_meta, crash.to_string(), historical_data.to_string())
 
-        popup_style = {
-            'display': 'block',
-            'position': 'fixed',
-            'left': '50%',
-            'top': '50%',
-            'transform': 'translate(-50%, -50%)',
-            'zIndex': '1000',
-            'backgroundColor': 'white',
-            'border': '1px solid black',
-            'padding': '10px',
-            'width': '840px',
-            'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
-        }
-        image_element = html.Div([
-            html.H2(location_name),
-            html.Button(html.I(className="fa fa-window-close"), id="close-popup-tab5",className="close-popup-button", n_clicks=0),
-            dcc.Markdown(analysis),
-            dash_pannellum.DashPannellum(
-                id='partial-panorama-component',
-                tour={
-                    "default": {
-                        "firstScene": "scene1",
-                        "sceneFadeDuration": 1000
-                    },
-                    "scenes": {
-                        "scene1": {
-                            "hfov": 110,
-                            "pitch": -3,
-                            "yaw": 117,
-                            "type": "equirectangular",
-                            "panorama": data_uri
+        image_element = [
+            dbc.ModalHeader(dbc.ModalTitle(location_name)),
+            dbc.ModalBody(html.Div([
+                dcc.Markdown(analysis),
+                dash_pannellum.DashPannellum(
+                    id='partial-panorama-component',
+                    tour={
+                        "default": {
+                            "firstScene": "scene1",
+                            "sceneFadeDuration": 1000
+                        },
+                        "scenes": {
+                            "scene1": {
+                                "hfov": 110,
+                                "pitch": -3,
+                                "yaw": 117,
+                                "type": "equirectangular",
+                                "panorama": data_uri
+                            }
                         }
-                    }
-                },
+                    },
                 width='100%',
-                height='400px',
-            )
-        ])
+                height='400px',)
+            ], style={'width': '100%', 'margin': '0 auto', 'padding': '5px'}))
+        ]
         print(f"Displaying popup for {location_name}.")
-        return image_element, popup_style, None
+        return image_element, True, None
+    
     # Fallback or initial state
     print("No valid trigger for display/hide, returning no_update.")
-    return dash.no_update, dash.no_update, None
+    return dash.no_update, False, None
 
 @app.callback(
     Output('data_type_vru_options_tab5', 'style'),

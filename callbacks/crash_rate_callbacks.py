@@ -6,9 +6,11 @@ from crash_rate_analysis import main
 import plotly.graph_objects as go  
 import datetime
 import geopandas as gpd
+import pandas as pd
 import tempfile
 import os
 import shutil
+import dash_bootstrap_components as dbc
 
 @app.callback(
     Output('data_type_vru_options_tab7', 'style'),
@@ -156,13 +158,9 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
             top_segments = top_segments.nlargest(n=10, columns='crash_rate')
             top_segments = top_segments.rename(columns={'AADT_Stats_2023_Table_Description': 'description', 'AADT_Stats_2023_Table_AADT': 'AADT'})
             selected_cols = top_segments[['unique_id', 'description', 'AADT', 'road_length_mi', 'crash_count', 'crash_rate']]
-            table_data = selected_cols.to_dict('records')
             table = html.Div([
                 html.H1('Top 10 Segments', style={'margin-top': '10px'}),
-                dash_table.DataTable(
-                    id='crash-rate-table',
-                    data=table_data,
-                    style_cell={'textAlign': 'left'},)
+                dbc.Table.from_dataframe(selected_cols, striped=True, bordered=True, hover=True)
             ])
 
         elif analysis_type == "Intersection":
@@ -171,13 +169,9 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
             top_intersections = top_intersections.nlargest(n=10, columns='crash_rate')
             top_intersections = top_intersections.rename(columns={'node_id': 'intersection_id'})
             selected_cols = top_intersections[['intersection_id', 'DEV', 'crash_count', 'crash_rate']]
-            table_data = selected_cols.to_dict('records')
             table = html.Div([
                 html.H1('Top 10 Intersections', style={'margin-top': '10px'}),
-                dash_table.DataTable(
-                    id='crash-rate-table',
-                    data=table_data,
-                    style_cell={'textAlign': 'left'},)
+                dbc.Table.from_dataframe(selected_cols, striped=True, bordered=True, hover=True)
             ])
         out_selected = selected_data
 

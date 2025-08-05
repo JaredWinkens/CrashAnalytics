@@ -1,4 +1,5 @@
 from dash import dcc, html
+import dash_bootstrap_components as dbc
 from app_instance import census_polygons_by_county
 
 def census_controls():
@@ -72,7 +73,7 @@ def census_controls():
             'padding': '5px'
         }),
         html.Div([
-            html.Button('Apply Filter', id='apply_filter_tab3', n_clicks=0, style={'margin-top': '30px'})
+            dbc.Button('Apply Filter', id='apply_filter_tab3', n_clicks=0, style={'margin-top': '30px'})
         ], style={'margin-bottom': '20px', 'margin-top': '20px'})
     ]
 

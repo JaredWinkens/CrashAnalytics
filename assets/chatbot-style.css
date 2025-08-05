@@ -50,7 +50,7 @@
 /* Individual message bubble styles */
 .message-bubble {
     border-radius: 18px;
-    padding: 10px 15px; /* Adjust padding for mobile */
+    padding: 10px 10px; /* Adjust padding for mobile */
     max-width: 85%; /* Allow bubbles to take more width on mobile */
     word-break: break-word;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -246,7 +246,7 @@
 
 #crash-map {
     height: 60vh;
-    width: 75vh;
+    width: 100%;
     padding: 30px;
     box-sizing: border-box;
 }

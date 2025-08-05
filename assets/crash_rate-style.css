@@ -21,8 +21,9 @@
 }
 
 #crash-rate-content{
-    padding: 30px 20px;
-    width: 80%;
+    padding: 30px 30px;
+    width: 100%;
+    margin-left: -20px;
 }
 
 #scatter_map_tab7{

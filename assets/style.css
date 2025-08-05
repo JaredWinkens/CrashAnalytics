@@ -1,0 +1,84 @@
+/* Base styles - these apply to all screen sizes, including mobile first */
+.desktop-layout {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  align-items: flex-start;
+  gap: 10px;  /* Adds space between controls and map */
+}
+.responsive-controls {
+  /* Increase controls width on desktop */
+  flex: 0 0 400px;  
+  padding: 10px 20px;
+  box-sizing: border-box;
+}
+.responsive-graph {
+  /* Map fills remaining space */
+  flex: 1;
+  height: 80vh;
+  padding: 10px;
+  box-sizing: border-box;
+  position: relative;
+}
+  /* Default styling for logos */
+.ny-logo {
+  float: right;
+}
+.suny-logo {
+  float: left;
+}
+.nav-link {
+  color: white !important; /* Force the text color to be white */
+  font-weight: bold; /* Make the text bold */
+}
+.nav-link.active {
+  color: black !important; /* Force the active tab text color to be black */
+}
+  /* good luck whoever messes with this next */
+.app-title {
+    color: white;
+    text-align: center;
+    position: relative;
+    transform: translate(-90px, 10px);
+    line-height: 90px;
+    font-size: 32px;
+    margin: 0;
+}
+
+#refresh_predictions_tab4 {
+    display: none !important;
+}
+
+@media (max-width: 768px) {
+  .ny-logo {
+    display: none;
+  }
+  .suny-logo {
+    display: none;
+  }
+  .desktop-layout {
+    display: block;
+    padding-top: 160px;  
+  }
+  .responsive-controls {
+    width: 100% !important;
+    padding: 10px !important;
+    margin-top: 0 !important;
+    box-sizing: border-box !important;
+  }
+  .responsive-graph {
+    width: 100% !important;
+    height: 70vh !important;
+    padding: 10px !important;
+    box-sizing: border-box !important;
+  }
+  .app-title {
+      text-align: left;   /* Align left on mobile */
+      margin-left: 20px;   /* Add some left margin */
+      font-size: 28px;     /* Optionally adjust font size */
+      line-height: 1.2;    /* Adjust line-height for mobile */
+  }
+}
+  
+  
+

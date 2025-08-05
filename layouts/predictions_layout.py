@@ -1,21 +1,22 @@
 from dash import dcc, html
+import dash_bootstrap_components as dbc
 
 def load_predictions_layout(make_field_row, LABELS, STEPS, ALL_FIELDS):
     return html.Div([
         # Header Section
-        html.Div([
-            html.Div([
-                html.Img(src='/assets/Poly.svg', style={
-                    'height': '128px', 'float': 'left', 'margin-right': '40px', 
-                    'margin-left': '-20px', 'margin-top': '-8px'
-                }),
-                html.H1('Predictions', className='app-title'),
-                html.Img(src='/assets/NY.svg', className='ny-logo')
-            ],style={
-                'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
-                'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
-            }),
-        ]),
+        # html.Div([
+        #     html.Div([
+        #         html.Img(src='/assets/Poly.svg', style={
+        #             'height': '128px', 'float': 'left', 'margin-right': '40px', 
+        #             'margin-left': '-20px', 'margin-top': '-8px'
+        #         }),
+        #         html.H1('Predictions', className='app-title'),
+        #         html.Img(src='/assets/NY.svg', className='ny-logo')
+        #     ],style={
+        #         'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
+        #         'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
+        #     }),
+        # ]),
         # Left-side: Controls (Model, Prediction Bar, County Selector, and Editing UI)
         html.Div([
             html.Div([
@@ -76,11 +77,11 @@ def load_predictions_layout(make_field_row, LABELS, STEPS, ALL_FIELDS):
                 id="modal_fields_container"
             ),
             html.Div([
-            html.Button("Apply Updated Data",
+            dbc.Button("Apply Updated Data",
                 id="apply_updated_data",
                 n_clicks=0,
                 style={'marginRight':'10px','fontSize':'12px'}),
-            html.Button("Reset Predictions",
+            dbc.Button("Reset Predictions",
                 id="reset_predictions",
                 n_clicks=0,
                 style={'fontSize':'12px'})

@@ -1,4 +1,5 @@
 from dash import dcc, html
+import dash_bootstrap_components as dbc
 
 def load_heatmap_layout(available_counties, 
                         unique_weather, 
@@ -9,19 +10,19 @@ def load_heatmap_layout(available_counties,
                         common_controls):
     return html.Div([
             # Header Section
-            html.Div([
-                html.Div([
-                    html.Img(src='/assets/Poly.svg', style={
-                        'height': '128px', 'float': 'left', 'margin-right': '40px', 
-                        'margin-left': '-20px', 'margin-top': '-8px'
-                    }),
-                    html.H1('Heatmap', className='app-title'),
-                    html.Img(src='/assets/NY.svg', className='ny-logo')
-                ],style={
-                    'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
-                    'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
-                }),
-            ]),
+            # html.Div([
+            #     html.Div([
+            #         html.Img(src='/assets/Poly.svg', style={
+            #             'height': '128px', 'float': 'left', 'margin-right': '40px', 
+            #             'margin-left': '-20px', 'margin-top': '-8px'
+            #         }),
+            #         html.H1('Heatmap', className='app-title'),
+            #         html.Img(src='/assets/NY.svg', className='ny-logo')
+            #     ],style={
+            #         'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
+            #         'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
+            #     }),
+            # ]),
             html.Div([
                 html.Div([
                     html.Label('Adjust Heatmap Radius:', style={'font-weight': 'bold'}),
@@ -95,23 +96,14 @@ def load_heatmap_layout(available_counties,
                     },
                     config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
                 ),
-                # Hidden button for closing the popup (must exist in initial layout)
-                html.Button(html.I(className="fa-window-close"),id="close-popup-tab2",className="close-popup-button", n_clicks=0, style={'display': 'none'}),
 
                 dcc.Loading(
-                    html.Div(id='image-popup-tab2', style={
-                        'position': 'fixed',
-                        'left': '50%',
-                        'top': '50%',
-                        'transform': 'translate(-50%, -50%)',
-                        'zIndex': '1000',
-                        'backgroundColor': 'white',
-                        'border': '1px solid black',
-                        'padding': '10px',
-                        'display': 'none', # Start hidden
-                        'maxWidth': '320px',
-                        'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
-                    }),
+                    dbc.Modal(
+                        id="image-popup-tab2", 
+                        children=[],
+                        size="lg",
+                        is_open=False,
+                    ),
                 ),
                 html.Button(
                     id='insight-button',n_clicks=0, 

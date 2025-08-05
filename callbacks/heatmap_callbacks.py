@@ -1,6 +1,7 @@
 from app_instance import app, get_county_data, county_coordinates
 from dash import ctx, html, dcc, Input, Output, State
-from crash_heat_map import map_analyzer
+import dash_bootstrap_components as dbc
+from heatmap_analyzer import map_analyzer
 import dash
 import base64
 import plotly.io as pio
@@ -10,19 +11,13 @@ from utils import helper_functions
 
 @app.callback(
     Output('image-popup-tab2', 'children'),
-    Output('image-popup-tab2', 'style'),
+    Output('image-popup-tab2', 'is_open'),
     Input('insight-button', 'n_clicks'), 
-    Input('close-popup-tab2', 'n_clicks'),
     State('heatmap_graph', 'figure'),      
     prevent_initial_call=True
 )
-def display_insight_popup(insight_button_n_clicks, close_button_n_clicks, fig_snapshot):
+def display_insight_popup(insight_button_n_clicks, fig_snapshot):
     triggered_id = ctx.triggered_id
-
-    # If the close button was clicked
-    if triggered_id == 'close-popup-tab2' and close_button_n_clicks is not None:
-        print("Close button clicked, hiding popup.")
-        return None, {'display': 'none'}
 
     if triggered_id == 'insight-button' and insight_button_n_clicks and insight_button_n_clicks > 0:
         fig_width = 1280
@@ -32,31 +27,19 @@ def display_insight_popup(insight_button_n_clicks, close_button_n_clicks, fig_sn
         encoded_image = base64.b64encode(image_bytes).decode('utf-8')
         data_url = f"data:image/png;base64,{encoded_image}"
         insights = map_analyzer.generate_response(image_bytes)
-        popup_style = {
-            'display': 'block',
-            'position': 'fixed',
-            'left': '50%',
-            'top': '50%',
-            'transform': 'translate(-50%, -50%)',
-            'zIndex': '1000',
-            'backgroundColor': 'white',
-            'border': '1px solid black',
-            'padding': '10px',
-            'maxWidth': '1280px',
-            'maxHeight': '720px',
-            'boxShadow': '0px 0px 10px rgba(0,0,0,0.5)'
-        }
-        image_element = html.Div([
-            html.H1("Image Insights"),
-            html.Button(html.I(className="fa fa-window-close"), id="close-popup-tab2",className="close-popup-button", n_clicks=0),
-            dcc.Markdown(insights, style={'maxWidth': '640px'}),
-            html.Img(src=data_url, style={'maxWidth': '640px', 'maxHeight': '480px'})
-        ])
-        return image_element, popup_style
+        
+        image_element = [
+            dbc.ModalHeader(dbc.ModalTitle("Image Insights")),
+            dbc.ModalBody(html.Div([
+                dcc.Markdown(insights),
+                html.Img(src=data_url, style={'width': '100%', 'height': '400px'})
+            ],style={'width': '100%', 'margin': '0 auto', 'padding': '5px'})),
+        ]
+        return image_element, True
     
     # Fallback or initial state
     print("No valid trigger for display/hide, returning no_update.")
-    return dash.no_update, dash.no_update
+    return dash.no_update, False
 
 @app.callback(
     Output('data_type_vru_options_tab2', 'style'),

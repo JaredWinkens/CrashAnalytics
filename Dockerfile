@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
     libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV CPLUS_INCLUDE_PATH=/usr/include/gdal

@@ -1,24 +1,29 @@
-# Use Python 3.11 slim image as base
 FROM python:3.11-slim
 
-# Set working directory in container
+
 WORKDIR /app
 
-# Copy requirements file
+
+RUN apt-get update && apt-get install -y \
+    gdal-bin \
+    libgdal-dev \
+    build-essential \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+
+ENV CPLUS_INCLUDE_PATH=/usr/include/gdal
+ENV C_INCLUDE_PATH=/usr/include/gdal
+ENV GDAL_VERSION=3.6.0
+
+
 COPY requirements.txt .
 
-# Install Python dependencies
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY app.py .
+COPY . .
 
-# Expose port 5000
-EXPOSE 8080
+EXPOSE 8050
 
-# Set environment variables
-ENV FLASK_APP=app.py
-ENV FLASK_RUN_HOST=0.0.0.0
-
-# Run the application
 CMD ["python", "app.py"]

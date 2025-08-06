@@ -5,15 +5,15 @@ import dash_bootstrap_components as dbc
 import datetime
 import plotly.express as px
 import plotly.io as pio
-import plotly.graph_objects as go  
+import plotly.graph_objects as go
 import pandas as pd
 import os
 import sys
 import logging
 from flask_caching import Cache
 from dash.exceptions import PreventUpdate
-from shapely.geometry import mapping  
-import geopandas as gpd 
+from shapely.geometry import mapping
+import geopandas as gpd
 import math
 import json
 import subprocess
@@ -63,6 +63,8 @@ ALL_FIELDS = [
     ("BikingWalkingMiles(Start)",    "Biking & Walking Miles (Start)",0.01),
     ("BikingWalkingMiles(End)",      "Biking & Walking Miles (End)", 0.01),
 ]
+
+# Test
 
 #quick lookup dicts
 LABELS = { var: label for var, label, step in ALL_FIELDS }
@@ -255,7 +257,7 @@ def copy_county_gpkg(county, source_gpkg, dest_folder):
         raise PreventUpdate
 
 
-    
+
 def standardize_county_name(name):
     """
     Standardize county names by removing 'County' suffix and ensuring proper casing.
@@ -275,7 +277,7 @@ def standardize_county_name(name):
 
 def load_data_final(file_path):
     """
-    Load and preprocess Data_Final.csv, including Crash_Date, Crash_Time, 
+    Load and preprocess Data_Final.csv, including Crash_Date, Crash_Time,
     Data_Type, Crash_Type, and SeverityCategory.
     """
     usecols = [
@@ -290,7 +292,7 @@ def load_data_final(file_path):
         'CrashType',             # → Crash_Type
         'Longitude',             # → X_Coord
         'Latitude',              # → Y_Coord
-        'SeverityCategory'       
+        'SeverityCategory'
     ]
 
     dtype = {
@@ -305,7 +307,7 @@ def load_data_final(file_path):
         'CrashType': str,
         'Longitude': float,
         'Latitude': float,
-        'SeverityCategory': str     
+        'SeverityCategory': str
     }
 
     chunks = []
@@ -330,7 +332,7 @@ def load_data_final(file_path):
                 'Longitude': 'X_Coord',
                 'Latitude': 'Y_Coord',
                 'CountyName': 'County',
-                'SeverityCategory': 'SeverityCategory'  
+                'SeverityCategory': 'SeverityCategory'
             })
 
             # Standardize County
@@ -527,7 +529,7 @@ auth = dash_auth.BasicAuth(
 
 # Initialize caching
 cache = Cache(app.server, config={
-    'CACHE_TYPE': 'simple'  
+    'CACHE_TYPE': 'simple'
 })
 
 # Define cache timeout (e.g., 1 hour)
@@ -562,7 +564,7 @@ def convert_miles_to_pixels(miles, zoom, center_latitude):
 def filter_data_tab1(df, start_date, end_date, time_range, days_of_week,
                      weather, light, road_surface,
                      severity_category, crash_type,
-                     main_data_type, vru_data_type):    
+                     main_data_type, vru_data_type):
     if start_date and end_date:
         df = df[(df['Crash_Date'] >= start_date) & (df['Crash_Date'] <= end_date)]
     # Time filtering
@@ -580,10 +582,10 @@ def filter_data_tab1(df, start_date, end_date, time_range, days_of_week,
         df = df[df['RoadSurfac'] == road_surface]
     if severity_category != 'All':
         df = df[df['SeverityCategory'] == severity_category]
-    if crash_type and crash_type != 'All':       
+    if crash_type and crash_type != 'All':
        df = df[df['Crash_Type'].str.strip().str.upper() == crash_type.upper()]
 
-    
+
     # Crash type filtering based on main_data_type:
     if main_data_type == 'VRU':
         # Filter to only VRU-related crashes.
@@ -597,11 +599,11 @@ def filter_data_tab1(df, start_date, end_date, time_range, days_of_week,
             df = df[df['Crash_Type'].str.strip().str.upper() == 'COLLISION WITH PEDESTRIAN']
     elif main_data_type == 'All':
         # "All" returns every crash (both VRU and non-VRU).
-        pass 
+        pass
     elif main_data_type == 'None':
         # "None" returns no crash data.
         df = df.iloc[0:0]
-    
+
     return df
 
 
@@ -694,7 +696,7 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
             step=1,
             value=[0, 6],
             marks={
-                0: '12am', 3: '3am', 6: '6am', 9: '9am', 12: '12pm', 
+                0: '12am', 3: '3am', 6: '6am', 9: '9am', 12: '12pm',
                 15: '3pm', 18: '6pm', 21: '9pm', 23: '11pm'
             },
             tooltip={'always_visible': True}
@@ -742,7 +744,7 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
             placeholder='Select light condition',
             style={'width': '100%'}
         ),
-        
+
         html.Label('Select Crash Type:', style={'margin-top': '20px'}),
         dcc.Dropdown(
             id=f'crash_type_selector_{prefix}',
@@ -763,7 +765,7 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
             style={'width': '100%'}
         ),
     ]
-    
+
     if show_buttons:
         if prefix == 'tab1':
             controls += [
@@ -793,7 +795,7 @@ def common_controls(prefix, show_buttons, available_counties, unique_weather, un
                     html.Button('Apply Filter', id=f'apply_filter_{prefix}', n_clicks=0, style={'margin-top': '30px'})
                 ])
             ]
-    
+
     # Remove the inline width, float, and margin settings and use a CSS class instead.
     return html.Div(controls, className='responsive-controls')
 
@@ -897,8 +899,8 @@ app.layout = html.Div([
     # Download Components
     dcc.Download(id='download_data'),
     dcc.Download(id='download_data_tab3'),
-    dcc.Download(id='download_data_tab7'),   
-    
+    dcc.Download(id='download_data_tab7'),
+
     dcc.Store(id='editable_gpkg_path'),
     dcc.Store(id='selected_census_tract'),
     dcc.Store(id='predictions_refresh', data=0),
@@ -907,7 +909,7 @@ app.layout = html.Div([
         n_clicks=0,
         style={'display': 'none'}
     ),
-    
+
     html.Div(
     html.Button('Edit Selected Census Tract', id='open_edit_modal', n_clicks=0),
     style={'display': 'none'}
@@ -1034,17 +1036,17 @@ def render_content(tab):
 
     elif tab == 'tab-4':  # Predictions Tab
         return layouts.predictions_layout.load_predictions_layout(make_field_row, LABELS, STEPS, ALL_FIELDS)
-    
+
     elif tab == 'tab-5': # Crash Analyzer
         return layouts.crash_analyzer_layout.load_crash_analyzer_layout(available_counties, unique_weather, unique_light, unique_road, unique_crash_types, county_coordinates, common_controls)
-    
+
     elif tab == 'tab-6': # Chatbot Tab
         return layouts.chatbot_layout.load_chatbot_layout([{"sender": "bot", "message": initial_bot_message, "map": None, "loading": False}])
-    
+
     elif tab == 'tab-7': # Chatbot Tab
         return layouts.crash_rate_layout.load_crash_rate_layout(available_counties, available_func_classes, county_coordinates, unique_weather, unique_light, unique_road, unique_crash_types, min_date, max_date, common_controls)
-    
-    
+
+
 
 @app.callback(
     Output('chat-history-store', 'data'),
@@ -1063,9 +1065,9 @@ def clear_chat_history(n_clicks, current_chat_data, curent_chat_container):
 @app.callback(
     Output('image-popup-tab2', 'children'),
     Output('image-popup-tab2', 'style'),
-    Input('insight-button', 'n_clicks'), 
+    Input('insight-button', 'n_clicks'),
     Input('close-popup-tab2', 'n_clicks'),
-    State('heatmap_graph', 'figure'),      
+    State('heatmap_graph', 'figure'),
     prevent_initial_call=True
 )
 def display_insight_popup(insight_button_n_clicks, close_button_n_clicks, fig_snapshot):
@@ -1105,7 +1107,7 @@ def display_insight_popup(insight_button_n_clicks, close_button_n_clicks, fig_sn
             html.Img(src=data_url, style={'maxWidth': '640px', 'maxHeight': '480px'})
         ])
         return image_element, popup_style
-    
+
     # Fallback or initial state
     print("No valid trigger for display/hide, returning no_update.")
     return dash.no_update, dash.no_update
@@ -1116,22 +1118,22 @@ def display_insight_popup(insight_button_n_clicks, close_button_n_clicks, fig_sn
     Output('scatter_map_tab5', 'clickData'),
     Input('scatter_map_tab5', 'clickData'),
     Input('close-popup-tab5', 'n_clicks'),
-    State('filtered_data_tab5', 'data'),     
+    State('filtered_data_tab5', 'data'),
     prevent_initial_call=True
 )
 def display_streetview_popup(clickData, close_button_n_clicks, filtered_data):
     triggered_id = ctx.triggered_id
-     
+
     # If the close button was clicked
     if triggered_id == 'close-popup-tab5' and close_button_n_clicks is not None:
         return None, {'display': 'none'}, None
-    
+
     if triggered_id == 'scatter_map_tab5':
-        
+
         lon = clickData['points'][0]['lon']
         lat = clickData['points'][0]['lat']
         location_name = streetview.get_location_name(lat, lon)
-        
+
         image_meta = streetview.get_street_view_image_metadata(lat, lon)
 
         image_bytes = streetview.stitch_street_view_images_from_lat_lon(lat, lon, [0, 45, 90, 135, 180, 225, 270, 315], "640x640", 90,".png")
@@ -1141,7 +1143,7 @@ def display_streetview_popup(clickData, close_button_n_clicks, filtered_data):
         crash = data_final_df.query(f"Case_Number == '{caseNumber}'")
 
         historical_data = streetview.get_historical_crash_data(77, lat, lon, pd.DataFrame(filtered_data))
-        
+
         analysis = streetview.analyze_image_ai(image_bytes, image_meta, crash.to_string(), historical_data.to_string())
 
         popup_style = {
@@ -1217,8 +1219,8 @@ def handle_user_input(send_button_clicks, n_submits, user_question, current_chat
 
     return (
         '',
-        current_chat_data, 
-        new_scroll_trigger, 
+        current_chat_data,
+        new_scroll_trigger,
         {
             "question": user_question,
             "timestamp": datetime.datetime.now().isoformat(),
@@ -1228,7 +1230,7 @@ def handle_user_input(send_button_clicks, n_submits, user_question, current_chat
 # --- Generate Bot Response (updates the specific bot message) ---
 @app.callback(
     Output('chat-history-store', 'data', allow_duplicate=True),
-    Output('scroll-trigger', 'data', allow_duplicate=True),    
+    Output('scroll-trigger', 'data', allow_duplicate=True),
     Input('user-question-for-bot', 'data'),
     State('chat-history-store', 'data'),
     State('scroll-trigger', 'data'),
@@ -1243,7 +1245,7 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
     bot_response_data = chatbotv4.get_agent_response(user_question)
     bot_response_text = bot_response_data.get("text", "No response.")
     fig = bot_response_data.get("visualization_data")
-    
+
     # Remove loading message
     current_chat_data.pop()
 
@@ -1264,7 +1266,7 @@ def generate_and_display_bot_response(user_question_data, current_chat_data, cur
 def update_chat_display(stored_chat_data):
     if stored_chat_data is None:
         raise dash.exceptions.PreventUpdate
-    
+
     rendered_history_elements =[]
     for msg in stored_chat_data:
         if msg['sender'] == "user":
@@ -1516,7 +1518,7 @@ def map_tab1(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         filtered = filter_data_tab1(
             df, start_date, end_date, time_range,
             days_of_week, weather, light, road_surface,  severity_category, crash_type,
-            main_data_type, vru_data_type, 
+            main_data_type, vru_data_type,
         )
         if selected_data and 'points' in selected_data:
             keep = [pt['customdata'][0] for pt in selected_data['points']]
@@ -1700,7 +1702,7 @@ def update_heatmap_tab2(n_clicks, radius_miles, counties_selected,
         start_date, end_date, time_range,
         days_of_week, weather, light, road_surface,
         severity_category, crash_type,
-        main_data_type, vru_data_type, 
+        main_data_type, vru_data_type,
     )
 
     # COMPUTE CENTER
@@ -1999,7 +2001,7 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
                 showscale=False,
                 featureidkey="properties.id",
                 name="Missing",
-                hovertemplate="<extra></extra>" 
+                hovertemplate="<extra></extra>"
             ),
                 go.Choroplethmap(
                 geojson=json.loads(valid.to_json()),
@@ -2074,7 +2076,7 @@ modal_value_outputs = [
 
 modal_value_inputs = (
     [ Input("selected_census_tract", "data") ]
-  + sum([[ 
+  + sum([[
        Input(f"plus_input_{var}",  "n_clicks"),
        Input(f"minus_input_{var}", "n_clicks")
     ] for var in FIELD_IDS], [])
@@ -2594,7 +2596,7 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         filtered = filter_data_tab1(
             df, start_date, end_date, time_range,
             days_of_week, weather, light, road_surface,  severity_category, crash_type,
-            main_data_type, vru_data_type, 
+            main_data_type, vru_data_type,
         )
         if selected_data and 'points' in selected_data:
             keep = [pt['customdata'][0] for pt in selected_data['points']]
@@ -2678,7 +2680,7 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
     ]
 )
 def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_selected,
-            start_date, end_date, time_range, days_of_week, weather, light, road_surface, severity_category, 
+            start_date, end_date, time_range, days_of_week, weather, light, road_surface, severity_category,
             main_data_type, vru_data_type, crash_type, analysis_type):
     ctx = callback_context
     triggered = (
@@ -2728,15 +2730,15 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
         )
         fig.update_layout(uirevision=key)
         return fig, None, None, None
-    
+
     # apply filters
     if triggered == 'apply_filter_tab7':
         filtered_crashes = filter_data_tab1(
             df, start_date, end_date, time_range,
             days_of_week, weather, light, road_surface,  severity_category, crash_type,
-            main_data_type, vru_data_type, 
+            main_data_type, vru_data_type,
         )
-        
+
         format_string = "%Y-%m-%d"
         min_year = datetime.datetime.strptime(start_date, format_string).year
         max_year = datetime.datetime.strptime(end_date, format_string).year
@@ -2799,7 +2801,7 @@ def map_tab7(apply_n_clicks, selected_data, func_class_selected, counties_select
             title="MultiLineStrings from GeoDataFrame"
         )
         fig.update_layout(uirevision=key)
-        return fig, None, None, None   
+        return fig, None, None, None
 
     fig.update_layout(uirevision=key)
     return fig, out_selected, table, data
@@ -2830,9 +2832,9 @@ def download_filtered_data_tab7(n_clicks, analysis_type, shapefile_data):
 
                 zip_file_name = 'crash_rate_analysis.zip'
                 zip = shutil.make_archive(zip_file_name.split('.')[0], 'zip', temp_dir)
-                
+
                 return dcc.send_file(zip)
-                
+
             # # If a box selection exists, further filter by the selected points.
             # if selected_data and 'points' in selected_data and selected_data['points']:
             #     selected_case_numbers = [point['customdata'][0] for point in selected_data['points']]
@@ -2864,7 +2866,7 @@ if __name__ == '__main__':
     counties = unique_counties  # Dynamically set counties based on Data_Final.csv
 
     logger.debug(f"Unique counties extracted from Data_Final.csv: {counties}")
-    
+
     unique_weather = sorted(data_final_df['WeatherCon'].dropna().unique().tolist())
     unique_light = sorted(data_final_df['LightCon'].dropna().unique().tolist())
     unique_road = sorted(data_final_df['RoadSurfac'].dropna().unique().tolist())
@@ -2954,12 +2956,12 @@ if __name__ == '__main__':
     census_polygons_by_county = load_census_data(census_data_file)
     logger.debug(f"Census polygons loaded for {len(census_polygons_by_county)} counties.")
 
-    available_road_classes = ['Urban:Major Collector', 'Urban:Principal Arterial - Interstate', 
-        'Urban:Principal Arterial - Freeways & Expressways', 'Urban:Minor Arterial', 
-        'Urban:Local', 'Urban:Principal Arterial - Other', 'LU:Principal Arterial - Interstate', '', 
-        'LU:Principal Arterial - Freeways & Expressways', 'Rural:Minor Arterial', 'Rural:Major Collector', 
-        'Rural:Local', 'Rural:Minor Collector', 'Rural:Principal Arterial - Freeways & Expressways', 
-        'Urban:Minor Collector', 'Rural:Principal Arterial - Other', 'Rural:Principal Arterial - Interstate', 
+    available_road_classes = ['Urban:Major Collector', 'Urban:Principal Arterial - Interstate',
+        'Urban:Principal Arterial - Freeways & Expressways', 'Urban:Minor Arterial',
+        'Urban:Local', 'Urban:Principal Arterial - Other', 'LU:Principal Arterial - Interstate', '',
+        'LU:Principal Arterial - Freeways & Expressways', 'Rural:Minor Arterial', 'Rural:Major Collector',
+        'Rural:Local', 'Rural:Minor Collector', 'Rural:Principal Arterial - Freeways & Expressways',
+        'Urban:Minor Collector', 'Rural:Principal Arterial - Other', 'Rural:Principal Arterial - Interstate',
         'LU:Principal Arterial - Other', ':Principal Arterial - Other']
     available_road_classes.sort()
 

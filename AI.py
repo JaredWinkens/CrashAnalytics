@@ -41,7 +41,7 @@ def predict_single(input_values, scaler, rf_model, y_mean, y_std):
     """
     # Convert input values to a numpy array of float type.
     input_array = np.array(input_values, dtype=float)
-    
+
     # Instead of replacing NaN with 0, detect if any feature is missing.
     if np.isnan(input_array).any():
         return np.nan
@@ -52,24 +52,24 @@ def predict_single(input_values, scaler, rf_model, y_mean, y_std):
         input_array[7] = 0.0
     else:
         input_array[7] = np.log1p(input_array[7])
-    
+
     # Scale the input data.
     input_scaled = scaler.transform(input_array.reshape(1, -1))
-    
+
     # Make a prediction using the Random Forest model.
     prediction = rf_model.predict(input_scaled)
-    
+
     # Unstandardize the prediction.
     prediction = prediction * y_std + y_mean
     return prediction[0]
 
 def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mean, y_std):
     """
-    Load data from a geopackage file, perform predictions, and save the results 
+    Load data from a geopackage file, perform predictions, and save the results
     to another geopackage file.
-    
+
     Expects the geopackage file to have a layer with the following columns:
-      ['DEMOGIDX_5', 'PEOPCOLORPCT', 'UNEMPPCT', 'pct_residential', 
+      ['DEMOGIDX_5', 'PEOPCOLORPCT', 'UNEMPPCT', 'pct_residential',
        'pct_industrial', 'pct_retail', 'pct_commercial', 'AADT',
        'Commute_TripMiles_TripStart_avg', 'Commute_TripMiles_TripEnd_avg']
     """
@@ -83,7 +83,7 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
     for col in gdf.columns:
         logger.debug("  %r", col)
 
-    
+
     # Ensure an 'id' column exists for tracing.
     if 'id' not in gdf.columns:
         gdf = gdf.reset_index(drop=True)
@@ -91,11 +91,11 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
 
     # Define required columns (order matters: index 7 is AADT)
     required_columns = [
-        'DEMOGIDX_5', 'PEOPCOLORPCT', 'UNEMPPCT', 'pct_residential', 
+        'DEMOGIDX_5', 'PEOPCOLORPCT', 'UNEMPPCT', 'pct_residential',
         'pct_industrial', 'pct_retail', 'pct_commercial', 'AADT',
             'AvgCommuteMiles(Start)', 'AvgCommuteMiles(End)'
     ]
-    
+
     # For any missing columns, create them and fill with NaN.
     for col in required_columns:
         if col not in gdf.columns:
@@ -104,7 +104,7 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
 
     # Do not force missing values to 0; leave them as NaN.
     gdf[required_columns] = gdf[required_columns].apply(pd.to_numeric, errors='coerce')
-    
+
     predictions = []
     for idx, row in gdf.iterrows():
         try:
@@ -115,11 +115,11 @@ def predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mea
             logger.error(f"Error processing row {idx}: {e}")
             # If processing fails for some reason, assign NaN.
             predictions.append(np.nan)
-    
+
     gdf['Prediction'] = predictions
     logger.debug("Predictions added. Sample predictions:")
     logger.debug(gdf[['id', 'Prediction']].head())
-    
+
     try:
         gdf.to_file(output_gpkg_path, driver="GPKG")
         logger.debug(f"Predictions saved to '{output_gpkg_path}'.")
@@ -132,7 +132,7 @@ def main():
     default_preproc_path = './AI/preprocessing_info.pkl'
     default_input_gpkg = './AI/Rename_DataSet2.25.gpkg'
     default_output_gpkg = './AI/Large_DataSet2.25_with_predictions.gpkg'
-    
+
     # If command-line arguments are provided, override the defaults.
     if len(sys.argv) > 1:
         input_gpkg_path = sys.argv[1]
@@ -146,11 +146,11 @@ def main():
 
     logger.debug(f"Using input geopackage: {input_gpkg_path}")
     logger.debug(f"Output geopackage will be: {output_gpkg_path}")
-    
+
     # Load model and preprocessing data.
     rf_model = load_model(default_model_path)
     scaler, y_mean, y_std = load_preprocessing(default_preproc_path)
-    
+
     # Run predictions from the geopackage.
     predict_from_gpkg(input_gpkg_path, output_gpkg_path, scaler, rf_model, y_mean, y_std)
 

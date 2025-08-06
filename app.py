@@ -58,6 +58,7 @@ LABELS = { var: label for var, label, step in ALL_FIELDS }
 STEPS  = { var: step  for var, label, step in ALL_FIELDS }
 
 # region key for mgwr cause a better way eludes me
+# Update REGION_FIELDS to include the new fields with parentheses notation:
 REGION_FIELDS = {
     "A": [
         "UNEMPPCT",
@@ -97,6 +98,7 @@ REGION_FIELDS = {
         "BikingWalkingMiles(Start)",
         "BikingTrips(Start)",
         "WalkingTrips(End)",
+        "PublicTransitTrips(Start)",
         "PublicTransitTrips(End)",
         "AvgCommuteMiles(Start)"
     ],
@@ -163,6 +165,52 @@ REGION_FIELDS = {
     ]
 }
 
+REGION_FIELDS_MGWR = {
+    "A": [
+        "UNEMPPCT", "pct_residential", "pct_industrial", "pct_retail",
+        "pct_commercial", "AADT", "BikingTrips.Start.", "BikingTrips.End.",
+        "CarpoolTrips.Start.", "PublicTransitTrips.Start.",
+        "PublicTransitTrips.End.", "AvgCommuteMiles.Start."
+    ],
+    "B": [
+        "PEOPCOLORPCT", "UNEMPPCT", "pct_residential", "pct_industrial",
+        "pct_retail", "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+        "BikingTrips.Start.", "WalkingTrips.End.",
+        "PublicTransitTrips.Start.", "AvgCommuteMiles.End."
+    ],
+    "C": [
+        "UNEMPPCT", "pct_residential", "pct_industrial", "pct_retail",
+        "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+        "BikingTrips.Start.", "WalkingTrips.End.",
+        "PublicTransitTrips.End.", "AvgCommuteMiles.Start."
+    ],
+    "D": [
+        "PEOPCOLORPCT", "pct_residential", "pct_industrial", "pct_retail",
+        "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+        "BikingWalkingMiles.End.", "BikingTrips.Start.",
+        "BikingTrips.End.", "CarpoolTrips.End.", "PublicTransitTrips.End.",
+        "AvgCommuteMiles.Start."
+    ],
+    "E": [
+        "PEOPCOLORPCT", "UNEMPPCT", "pct_residential", "pct_industrial",
+        "pct_retail", "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+        "BikingWalkingMiles.End.", "BikingTrips.Start.", "WalkingTrips.Start.",
+        "PublicTransitTrips.Start.", "AvgCommuteMiles.End."
+    ],
+    "FG": [
+        "UNEMPPCT", "pct_residential", "pct_industrial", "pct_retail",
+        "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+        "BikingWalkingMiles.End.", "BikingTrips.Start.", "BikingTrips.End.",
+        "PublicTransitTrips.Start.", "PublicTransitTrips.End.", "AvgCommuteMiles.End."
+    ],
+    "HIJ": [
+        "UNEMPPCT", "DISABILITYPCT", "pct_residential", "pct_industrial",
+        "pct_retail", "pct_commercial", "AADT", "BikingWalkingMiles.Start.",
+        "BikingTrips.Start.", "BikingTrips.End.", "CarpoolTrips.Start.",
+        "CarpoolTrips.End.", "PublicTransitTrips.Start.",
+        "PublicTransitTrips.End."
+    ]
+}
 
 # helper to build a single field‐row
 def make_field_row(var_id, label, step):
@@ -177,7 +225,7 @@ def make_field_row(var_id, label, step):
 DEFAULT_PRED_FILES = {
     'AI.py':  './AI/Large_DataSet2.25_with_predictions.gpkg',
     'AI2.py': './AI/Rename_DataSet2.25_with_gwr_predictions.gpkg',
-    'mgwr_predict.py': './MGWR/merged_with_all_tracts.gpkg'
+    'mgwr_predict.py': './MGWR/merged_with_all_tracts_updated.gpkg'
 }
 
 # ----------------------------
@@ -191,10 +239,13 @@ logger = logging.getLogger(__name__)
 # ----------------------------
 
 
+
+
 def copy_county_gpkg(county, source_gpkg, dest_folder):
     """
-    Extract just one county’s features into a new editable GPKG,
+    Extract just one county's features into a new editable GPKG,
     filtering on CNTY_NAME or CountyName as available.
+    Also fixes column names by replacing dots with parentheses.
     """
     try:
         gdf = gpd.read_file(source_gpkg)
@@ -229,18 +280,70 @@ def copy_county_gpkg(county, source_gpkg, dest_folder):
         # ensure an 'id' column for downstream callbacks
         county_gdf = county_gdf.copy()
         if 'id' not in county_gdf.columns:
-            county_gdf['id'] = county_gdf.index.astype(str)
+            # Use index as ID, but make it more unique
+            county_gdf['id'] = [f"{county}_{i}" for i in range(len(county_gdf))]
+            logger.info(f"Created ID column with values like: {county_gdf['id'].iloc[:3].tolist()}")
+        else:
+            # Ensure IDs are strings and not None
+            county_gdf['id'] = county_gdf['id'].astype(str)
+            # Check for None or 'None' values
+            none_mask = (county_gdf['id'].isna()) | (county_gdf['id'] == 'None') | (county_gdf['id'] == 'nan')
+            if none_mask.any():
+                logger.warning(f"Found {none_mask.sum()} tracts with None/nan IDs, replacing...")
+                county_gdf.loc[none_mask, 'id'] = [f"{county}_fixed_{i}" for i in range(none_mask.sum())]
+
+        # Log some IDs for debugging
+        logger.info(f"Sample tract IDs: {county_gdf['id'].head().tolist()}")
+        
+        # Fix column names: replace dots with parentheses for consistency
+        rename_map = {}
+        for col_name in county_gdf.columns:
+            if '.' in col_name and col_name.endswith('.'):
+                # Handle cases like 'BikingTrips.Start.' -> 'BikingTrips(Start)'
+                new_name = col_name.rstrip('.').replace('.', '(') + ')'
+                rename_map[col_name] = new_name
+        
+        if rename_map:
+            county_gdf = county_gdf.rename(columns=rename_map)
+            logger.debug(f"Renamed columns: {rename_map}")
 
         # write out the editable file
         dest_file = os.path.join(dest_folder, f"{county}_editable.gpkg")
         county_gdf.to_file(dest_file, driver='GPKG')
-        logger.debug(f"Created editable GPkg for {county} at {dest_file}")
+        logger.debug(f"Created editable GPkg for {county} at {dest_file} with {len(county_gdf)} tracts")
+        
+        # Verify the file was written correctly
+        test_gdf = gpd.read_file(dest_file)
+        logger.info(f"Verification - tract count: {len(test_gdf)}, has id column: {'id' in test_gdf.columns}")
+        if 'id' in test_gdf.columns:
+            logger.info(f"Verification - sample IDs: {test_gdf['id'].head().tolist()}")
+        
+        field_mappings = {
+            'Commute_TripMiles_TripStart_avg': 'AvgCommuteMiles(Start)',
+            'Commute_TripMiles_TripEnd_avg': 'AvgCommuteMiles(End)',
+            'AvgCommuteMiles.Start.': 'AvgCommuteMiles(Start)',
+            'AvgCommuteMiles.End.': 'AvgCommuteMiles(End)',
+        }
+        
+        for source_field, target_field in field_mappings.items():
+            if source_field in county_gdf.columns and target_field not in county_gdf.columns:
+                county_gdf[target_field] = county_gdf[source_field]
+                logger.info(f"Created {target_field} from {source_field}")
+        
+        # Also ensure the dot notation exists for MGWR
+        if 'AvgCommuteMiles(Start)' in county_gdf.columns and 'AvgCommuteMiles.Start.' not in county_gdf.columns:
+            county_gdf['AvgCommuteMiles.Start.'] = county_gdf['AvgCommuteMiles(Start)']
+        if 'AvgCommuteMiles(End)' in county_gdf.columns and 'AvgCommuteMiles.End.' not in county_gdf.columns:
+            county_gdf['AvgCommuteMiles.End.'] = county_gdf['AvgCommuteMiles(End)']
+
         return dest_file
 
     except PreventUpdate:
         raise
     except Exception as e:
         logger.error(f"Error copying GPkg for county {county}: {e}")
+        import traceback
+        traceback.print_exc()
         raise PreventUpdate
 
 
@@ -268,7 +371,7 @@ def load_data_final(file_path):
     Data_Type, Crash_Type, and SeverityCategory.
     """
     usecols = [
-        'CaseNumber',            # → Case_Number
+        'Number',            # → Case_Number
         'CrashDate',             # → Crash_Date
         'CrashTimeFormatted',    # → Crash_Time
         'RoadSurfaceCondition',  # → RoadSurfac
@@ -1255,7 +1358,59 @@ def render_content(tab):
                     style={'width': '100%', 'fontSize': '12px'}
                 ),
                 html.Br(),
+                html.Div([
+                    html.Label("Prediction Method:"),
+                    html.Div(
+                        html.Span(
+                            "i",
+                            title="Approximation is a formula that runs in a few seconds, while a full retrain could take 10+ minutes.",
+                            style={
+                                'display': 'inline-block',
+                                'backgroundColor': '#ccc',
+                                'border': '1px solid #999',
+                                'borderRadius': '50%',
+                                'width': '16px',
+                                'height': '16px',
+                                'textAlign': 'center',
+                                'lineHeight': '16px',
+                                'cursor': 'help',
+                                'marginLeft': '5px',
+                                'fontSize': '12px'
+                            }
+                        ),
+                    style={'textAlign': 'left'}
+                ),
+                    dcc.RadioItems(
+                        id='prediction_method',
+                        options=[
+                            {'label': 'Approximation',   'value': 'approximation'},
+                            {'label': 'Full Retrain',   'value': 'full_retrain'},
+                        ],
+                        value='approximation',
+                        labelStyle={'display': 'inline-block', 'marginRight': '20px'}
+                    )
+                ], style={'marginBottom': '20px'}),
                 html.Label('Prediction Data Controls', style={'fontSize': '12px'}),
+                html.Div(
+                    html.Span(
+                        "i",
+                        title="Percentages are on a scale of 0 to 1.",
+                        style={
+                            'display': 'inline-block',
+                            'backgroundColor': '#ccc',
+                            'border': '1px solid #999',
+                            'borderRadius': '50%',
+                            'width': '16px',
+                            'height': '16px',
+                            'textAlign': 'center',
+                            'lineHeight': '16px',
+                            'cursor': 'help',
+                            'marginLeft': '5px',
+                            'fontSize': '12px'
+                        }
+                    ),
+                style={'textAlign': 'left'}
+            ),
                 html.Button('Refresh Predictions', id='refresh_predictions_tab4', n_clicks=0, style={'fontSize': '12px'}),
                 html.Hr(),
                 html.Div(
@@ -1291,17 +1446,11 @@ def render_content(tab):
                         }
                     },
                     config={
-                        'modeBarButtonsToRemove': ['lasso2d'],
-                        'displayModeBar': True,
-                        'scrollZoom': True
+                        'displayModeBar': False,  
+                        'scrollZoom': True        
                     }
                 ),
 
-                # Comparison scatter plot
-                dcc.Graph(
-                    id='comparison_graph',
-                    className='responsive-graph'
-                )
             ], className='responsive-graph'),
         ], className='desktop-layout')
     
@@ -1473,89 +1622,6 @@ def toggle_vru_options_tab3(main_value):
 # ----------------------------
 # 7.1. Callback for Data Downloader Tab (tab1)
 # ----------------------------
-@app.callback(
-    Output('comparison_graph', 'figure'),
-    Input('predictions_refresh',  'data'),
-    State('model_selector_tab4',  'value'),
-    State('county_selector_tab4', 'value'),
-    State('editable_gpkg_path',   'data'),
-)
-def update_comparison_graph(refresh, model_file, selected_counties, editable_gpkg_path):
-    # choose file‐suffix + default global file
-    if model_file == "AI2.py":
-        suffix, default_file = "_with_gwr_predictions", DEFAULT_PRED_FILES['AI2.py']
-    elif model_file == "mgwr_predict.py":
-        suffix, default_file = "_with_mgwr_predictions", DEFAULT_PRED_FILES['mgwr_predict.py']
-    else:
-        suffix, default_file = "_with_predictions",     DEFAULT_PRED_FILES['AI.py']
-
-    # only splitext when editable_gpkg_path is actually a string
-    if isinstance(editable_gpkg_path, str) and editable_gpkg_path:
-        base, ext = os.path.splitext(editable_gpkg_path)
-        candidate = f"{base}{suffix}{ext}"
-        gpkg_file = candidate if os.path.exists(candidate) else default_file
-    else:
-        gpkg_file = default_file
-
-    # load the GeoPackage
-    gdf = gpd.read_file(gpkg_file)
-
-    # apply county filter if requested
-    if selected_counties:
-        if 'CNTY_NAME' in gdf.columns:
-            gdf['CNTY_NAME'] = (
-                gdf['CNTY_NAME']
-                   .str.replace(" County", "", regex=False)
-                   .str.strip()
-                   .str.title()
-            )
-            gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
-        elif 'CountyName' in gdf.columns:
-            gdf['CountyName'] = (
-                gdf['CountyName']
-                   .str.strip()
-                   .str.title()
-            )
-            gdf = gdf[gdf['CountyName'].isin(selected_counties)]
-
-    # ensure we have the “Prediction” column
-    if 'Prediction' not in gdf.columns:
-        return go.Figure()
-
-    # build comparison scatter
-    fig = go.Figure()
-    if 'AADT Crash Rate' in gdf.columns:
-        fig.add_trace(go.Scatter(
-            x=gdf['Prediction'],
-            y=gdf['AADT Crash Rate'],
-            mode='markers',
-            name='AADT Crash Rate',
-            hovertemplate=(
-                "<b>AADT Crash Rate</b><br>"
-                "Prediction: %{x:.2f}<br>"
-                "Observed: %{y:.2f}<extra></extra>"
-            )
-        ))
-    if 'VRU Crash Rate' in gdf.columns:
-        fig.add_trace(go.Scatter(
-            x=gdf['Prediction'],
-            y=gdf['VRU Crash Rate'],
-            mode='markers',
-            name='VRU Crash Rate',
-            hovertemplate=(
-                "<b>VRU Crash Rate</b><br>"
-                "Prediction: %{x:.2f}<br>"
-                "Observed: %{y:.2f}<extra></extra>"
-            )
-        ))
-
-    fig.update_layout(
-        title="Model Prediction vs. Observed Crash Rates",
-        xaxis_title="Prediction",
-        yaxis_title="Crash Rate",
-        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
-    )
-    return fig
 
 
 @app.callback(
@@ -2079,13 +2145,7 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         if selected_counties:
             # AI/GWR outputs
             if 'CNTY_NAME' in gdf.columns:
-                gdf['CNTY_NAME'] = (
-                    gdf['CNTY_NAME']
-                       .str.replace(" County", "", regex=False)
-                       .str.strip()
-                       .str.title()
-                )
-                gdf = gdf[gdf['CNTY_NAME'].isin(selected_counties)]
+                gdf = gdf[gdf['CountyName'].isin(selected_counties)]
 
             # MGWR outputs use CountyName
             elif 'CountyName' in gdf.columns:
@@ -2105,25 +2165,25 @@ def update_predictions_map(n_clicks, selected_counties, refresh_trigger, model_f
         fig = go.Figure([
             go.Choroplethmapbox(
                 geojson=json.loads(missing.to_json()),
-                # fall back to GEOIDFQ if 'id' isn’t present
-                locations=missing['id'] if 'id' in missing.columns else missing['GEOIDFQ'],
+                locations=missing['GEOIDFQ'],  # Use GEOIDFQ directly
                 z=[0] * len(missing),
-                colorscale=[[0, "black"], [1, "black"]],
-                marker_opacity=0.9,
-                marker_line_width=1,
+                colorscale=[[0, "black"], [1, "black"]],  # Red for visibility
+                marker_opacity=0.8,
+                marker_line_width=2,
                 showscale=False,
-                featureidkey="properties.id",
-                name="Missing",
-                hovertemplate="<extra></extra>"
+                featureidkey="properties.GEOIDFQ",  # Match the location column
+                name="Missing Predictions",
+                hovertemplate="Missing prediction<extra></extra>",
+                customdata=missing[['CountyName']].values
             ),
             go.Choroplethmapbox(
                 geojson=json.loads(valid.to_json()),
                 locations=valid['id'] if 'id' in valid.columns else valid['GEOIDFQ'],
                 z=valid['Prediction'],
-                colorscale='YlGnBu',
+                colorscale=[[0, "green"], [0.5, "yellow"], [1, "red"]],                
                 marker_opacity=0.6,
                 marker_line_width=1,
-                colorbar=dict(title="Prediction"),
+                colorbar=dict(title="VRU Crash Rate"),
                 featureidkey="properties.id",
                 name="Prediction",
                 hovertemplate=(
@@ -2190,7 +2250,11 @@ modal_value_outputs = [
 ]
 
 modal_value_inputs = (
-    [ Input("selected_census_tract", "data") ]
+    [
+     Input("selected_census_tract",     "data"),
+     Input("editable_gpkg_path",        "data"),
+     Input("predictions_refresh",       "data"),
+     Input("model_selector_tab4",       "value"), ]
   + sum([[ 
        Input(f"plus_input_{var}",  "n_clicks"),
        Input(f"minus_input_{var}", "n_clicks")
@@ -2213,23 +2277,44 @@ def update_modal_values(*all_args):
     On tract‐click: load every field from the editable GPKG.
     On plus/minus: bump only that one field by its step, leave the rest unchanged.
     """
+    
     num = len(FIELD_IDS)
-    # Inputs are: 1 selected_tract + 2*num clicks
-    trigger_args = all_args[: 1 + 2 * num]
+    # Inputs are: 1 selected_tract + 3 extra triggers + 2*num click-inputs
+    base_inputs  = 1 + 3
+    trigger_args = all_args[: base_inputs + 2 * num]
     # States are: 1 gpkg_path + num current values
-    state_args   = all_args[1 + 2 * num :]
+    state_args   = all_args[base_inputs + 2 * num :]
 
     selected_tract = trigger_args[0]
     gpkg_path      = state_args[0]
     current_vals   = list(state_args[1:])  # length == num
 
     trig = callback_context.triggered[0]["prop_id"]
-
+    logger.debug("update_modal_values triggered by: %s", trig)
     def clean(v):
-        return None if pd.isna(v) else round(v, 2)
+        # if v is a pandas Series take its first value
+        if isinstance(v, pd.Series):
+            if v.empty:
+                return 0.0  
+            v = v.iloc[0]
+        # now v is a scalar or None
+        if pd.isna(v) or v is None:
+            return 0.0  
+        try:
+            # Try to convert to float and round
+            return round(float(v), 2)
+        except (ValueError, TypeError):
+            # If it's not numeric (like a string), return 0.0
+            return 0.0
 
-    # --- Case 1: new tract selected → load every field from the editable GPKG
-    if trig.startswith("selected_census_tract"):
+
+    # Case 1: new tract selected load every field from the editable GPKG
+    if any(trig.startswith(key) for key in (
+        "selected_census_tract",
+        "editable_gpkg_path",
+        "predictions_refresh",
+        "model_selector_tab4",
+    )):
         if not (selected_tract and gpkg_path and os.path.exists(gpkg_path)):
             raise PreventUpdate
 
@@ -2244,17 +2329,22 @@ def update_modal_values(*all_args):
             raise PreventUpdate
         row = row.iloc[0]
 
-        if pd.isna(row.get("MGWR_Prediction")):
-            return [None] * len(FIELD_IDS)
-
         # otherwise load existing values and round them
         def clean(v):
-            return None if pd.isna(v) else round(v, 2)
+            # if v is a pandas Series (e.g. row.get returned a Series), take its first value
+            if isinstance(v, pd.Series):
+                if v.empty:
+                    return None
+                v = v.iloc[0]
+            # now v is a scalar or None
+            if pd.isna(v):
+                return None
+            return round(v, 2)
 
         return [ clean(row.get(var)) for var in FIELD_IDS ]
 
-    # --- Case 2: plus/minus clicked → find exactly which var to adjust
-    # Map each plus/minus input to its index and sign:
+    # Case 2: plus/minus clicked find exactly which var to adjust
+    # Map each plus/minus input to its index and sign
     deltas = {}
     for idx, var in enumerate(FIELD_IDS):
         if trig.startswith(f"plus_input_{var}.n_clicks"):
@@ -2263,7 +2353,7 @@ def update_modal_values(*all_args):
             deltas[idx] = -STEPS[var]
 
     if not deltas:
-        # no recognized trigger → do nothing
+        # no recognized trigger do nothing
         raise PreventUpdate
 
     # apply the single delta and return all values
@@ -2285,53 +2375,40 @@ def update_county_options(n_clicks, model_file):
     try:
         if model_file == "AI2.py":
             gpkg_file = DEFAULT_PRED_FILES['AI2.py']
-        elif model_file == "MGWR.py":
-            gpkg_file = DEFAULT_PRED_FILES['MGWR.py']
+        elif model_file == "mgwr_predict.py": 
+            gpkg_file = DEFAULT_PRED_FILES['mgwr_predict.py']
         else:
             gpkg_file = DEFAULT_PRED_FILES['AI.py']
+            
         gdf = gpd.read_file(gpkg_file)
-        # Log the original column values for debugging
-        logger.debug("Original CNTY_NAME values: " + str(gdf['CNTY_NAME'].unique()))
-        # Remove the " County" suffix and standardize
-        gdf['CNTY_NAME'] = gdf['CNTY_NAME'].str.replace(" County", "", regex=False).str.strip().str.title()
-        unique_counties = sorted(gdf['CNTY_NAME'].dropna().unique().tolist())
+        
+        if 'CNTY_NAME' in gdf.columns:
+            county_col = 'CNTY_NAME'
+            logger.debug("Original CNTY_NAME values: " + str(gdf[county_col].unique()))
+            # Remove the " County" suffix and standardize
+            gdf[county_col] = gdf[county_col].str.replace(" County", "", regex=False).str.strip().str.title()
+            unique_counties = sorted(gdf[county_col].dropna().unique().tolist())
+        elif 'CountyName' in gdf.columns:
+            county_col = 'CountyName'
+            logger.debug("Original CountyName values: " + str(gdf[county_col].unique()))
+            # Remove the " County" suffix and standardize  
+            gdf[county_col] = gdf[county_col].str.replace(" County", "", regex=False).str.strip().str.title()
+            unique_counties = sorted(gdf[county_col].dropna().unique().tolist())
+        else:
+            logger.error(f"No county column found in {gpkg_file}")
+            logger.error(f"Available columns: {list(gdf.columns)}")
+            return []
+        
         logger.debug("Unique counties after formatting: " + str(unique_counties))
         options = [{'label': county, 'value': county} for county in unique_counties]
         return options
+        
     except Exception as e:
         logger.error(f"Error updating county selector options: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
-
-
-@app.callback(
-    Output('county_edit_modal', 'style'),
-    [Input('open_edit_modal', 'n_clicks'),
-     Input('close_modal', 'n_clicks'),
-     Input('apply_updated_data', 'n_clicks')],
-    State('county_edit_modal', 'style')
-)
-def toggle_modal(open_clicks, close_clicks, apply_clicks, current_style):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        raise PreventUpdate
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    if triggered_id == 'open_edit_modal':
-        # Show the modal with styling consistent with your project.
-        return {
-            'display': 'block',
-            'position': 'fixed',
-            'top': '50%',
-            'left': '50%',
-            'transform': 'translate(-50%, -50%)',
-            'padding': '20px',
-            'backgroundColor': 'white',
-            'border': '2px solid black',
-            'zIndex': 1000
-        }
-    else:
-        # Hide the modal on Close or after applying changes.
-        return {'display': 'none'}
 
 
 @app.callback(
@@ -2339,6 +2416,7 @@ def toggle_modal(open_clicks, close_clicks, apply_clicks, current_style):
     Output('editable_gpkg_path',    'data'),
     Output('predictions_refresh',   'data'),
     Output('county_selector_tab4',  'value'),
+    Input("prediction_method", "value"),
     Input('predictions_map',        'clickData'),
     Input('county_selector_tab4',   'value'),
     Input('apply_updated_data',     'n_clicks'),
@@ -2346,65 +2424,112 @@ def toggle_modal(open_clicks, close_clicks, apply_clicks, current_style):
     Input('model_selector_tab4',    'value'),
     State('selected_census_tract',  'data'),
     State('editable_gpkg_path',     'data'),
-    # all 24 field‐States in the right order
-    State('input_DEMOGIDX_5',                        'value'),
-    State('input_PEOPCOLORPCT',                      'value'),
-    State('input_UNEMPPCT',                          'value'),
-    State('input_pct_residential',                   'value'),
-    State('input_pct_industrial',                    'value'),
-    State('input_pct_retail',                        'value'),
-    State('input_pct_commercial',                    'value'),
-    State('input_AADT',                              'value'),
-    State('input_Commute_TripMiles_TripStart_avg',   'value'),
-    State('input_Commute_TripMiles_TripEnd_avg',     'value'),
-    State('input_ACSTOTPOP',                         'value'),
-    State('input_DEMOGIDX_2',                        'value'),
-    State('input_PovertyPop',                        'value'),
-    State('input_DISABILITYPCT',                     'value'),
-    State('input_BikingTrips(Start)',                'value'),
-    State('input_BikingTrips(End)',                  'value'),
-    State('input_CarpoolTrips(Start)',               'value'),
-    State('input_CarpoolTrips(End)',                 'value'),
-    State('input_CommercialFreightTrips(Start)',     'value'),
-    State('input_CommercialFreightTrips(End)',       'value'),
-    State('input_WalkingTrips(Start)',               'value'),
-    State('input_WalkingTrips(End)',                 'value'),
-    State('input_PublicTransitTrips(Start)',         'value'),
-    State('input_PublicTransitTrips(End)',           'value'),
+    # ALL 28 field States in the EXACT order they appear in ALL_FIELDS
+    State('input_DEMOGIDX_5',                        'value'),  # 1
+    State('input_PEOPCOLORPCT',                      'value'),  # 2
+    State('input_UNEMPPCT',                          'value'),  # 3
+    State('input_pct_residential',                   'value'),  # 4
+    State('input_pct_industrial',                    'value'),  # 5
+    State('input_pct_retail',                        'value'),  # 6
+    State('input_pct_commercial',                    'value'),  # 7
+    State('input_AADT',                              'value'),  # 8
+    State('input_Commute_TripMiles_TripStart_avg',   'value'),  # 9 - This is commute_start
+    State('input_Commute_TripMiles_TripEnd_avg',     'value'),  # 10 - This is commute_end
+    State('input_ACSTOTPOP',                         'value'),  # 11
+    State('input_DEMOGIDX_2',                        'value'),  # 12
+    State('input_PovertyPop',                        'value'),  # 13
+    State('input_DISABILITYPCT',                     'value'),  # 14
+    State('input_BikingTrips(Start)',                'value'),  # 15
+    State('input_BikingTrips(End)',                  'value'),  # 16
+    State('input_CarpoolTrips(Start)',               'value'),  # 17
+    State('input_CarpoolTrips(End)',                 'value'),  # 18
+    State('input_CommercialFreightTrips(Start)',     'value'),  # 19
+    State('input_CommercialFreightTrips(End)',       'value'),  # 20
+    State('input_WalkingTrips(Start)',               'value'),  # 21
+    State('input_WalkingTrips(End)',                 'value'),  # 22
+    State('input_PublicTransitTrips(Start)',         'value'),  # 23
+    State('input_PublicTransitTrips(End)',           'value'),  # 24
+    State('input_AvgCommuteMiles(Start)',            'value'),  # 25
+    State('input_AvgCommuteMiles(End)',              'value'),  # 26
+    State('input_BikingWalkingMiles(Start)',         'value'),  # 27
+    State('input_BikingWalkingMiles(End)',           'value'),  # 28
     State('predictions_refresh',                     'data'),
     prevent_initial_call=True,
     allow_duplicate=True
 )
 def manage_editable_and_predictions(
+    method,
     clickData,
     county_val,
     apply_n, reset_n, model_file,
     selected_tract, gpkg_path,
-    demogidx_5, peopcolorpct, unemppct,
-    pct_residential, pct_industrial, pct_retail, pct_commercial,
-    aadt, commute_start, commute_end,
-    acstotpop, demogidx_2, poverty_pop, disabilitypct,
-    biking_start, biking_end,
-    carpool_start, carpool_end,
-    freight_start, freight_end,
-    walking_start, walking_end,
-    transit_start, transit_end,
+    # all 28 parameters matching the 28 States
+    demogidx_5,                    # 1
+    peopcolorpct,                  # 2
+    unemppct,                      # 3
+    pct_residential,               # 4
+    pct_industrial,                # 5
+    pct_retail,                    # 6
+    pct_commercial,                # 7
+    aadt,                          # 8
+    commute_start,                 # 9 
+    commute_end,                   # 10 
+    acstotpop,                     # 11
+    demogidx_2,                    # 12
+    poverty_pop,                   # 13
+    disabilitypct,                 # 14
+    biking_start,                  # 15
+    biking_end,                    # 16
+    carpool_start,                 # 17
+    carpool_end,                   # 18
+    freight_start,                 # 19
+    freight_end,                   # 20
+    walking_start,                 # 21
+    walking_end,                   # 22
+    transit_start,                 # 23
+    transit_end,                   # 24
+    avg_commute_start,             # 25 
+    avg_commute_end,               # 26 
+    biking_walking_start,          # 27
+    biking_walking_end,            # 28
     current_refresh
 ):
-
-
-
     trig = ctx.triggered_id
 
     # 1) Map click just update selected_census_tract
     if trig == 'predictions_map':
         if clickData and clickData.get('points'):
-            tract = clickData['points'][0]['location']
-            return tract, dash.no_update, dash.no_update, dash.no_update
+            clicked_location = clickData['points'][0]['location']
+            
+            # The location could be either an 'id' or a 'GEOIDFQ'
+            # We need to find the corresponding 'id' if GEOIDFQ was clicked
+            if gpkg_path and os.path.exists(gpkg_path):
+                try:
+                    gdf = gpd.read_file(gpkg_path)
+                    
+                    # First try direct id match
+                    tract_match = gdf[gdf['id'].astype(str) == str(clicked_location)]
+                    
+                    # If no match and clicked_location looks like a GEOIDFQ, try that
+                    if tract_match.empty and 'GEOIDFQ' in gdf.columns:
+                        tract_match = gdf[gdf['GEOIDFQ'].astype(str) == str(clicked_location)]
+                    
+                    if not tract_match.empty:
+                        # Get the actual id value
+                        tract_id = str(tract_match.iloc[0]['id'])
+                        logger.debug(f"Clicked location {clicked_location} maps to tract id {tract_id}")
+                        return tract_id, dash.no_update, dash.no_update, dash.no_update
+                    else:
+                        logger.warning(f"No tract found for clicked location: {clicked_location}")
+                except Exception as e:
+                    logger.error(f"Error finding tract: {e}")
+            
+            # Fallback: use the clicked location as-is
+            return clicked_location, dash.no_update, dash.no_update, dash.no_update
         raise PreventUpdate
 
-
-    # Model swapclear everything so user must re-choose county
+    # Rest of the callback remains the same...
+    # Model swap—clear everything so user must re-choose county
     if trig == 'model_selector_tab4':
         # delete any existing editable & pred files but only if gpkg_path is really a string
         if isinstance(gpkg_path, str) and os.path.exists(gpkg_path):
@@ -2444,10 +2569,35 @@ def manage_editable_and_predictions(
     if trig == 'apply_updated_data':
         if apply_n and selected_tract and gpkg_path:
             gdf = gpd.read_file(gpkg_path)
-            idx = gdf[gdf['id']==selected_tract].index
-            if idx.empty:
+            
+            # Ensure we're comparing strings properly
+            selected_tract_str = str(selected_tract) if selected_tract else None
+            
+            if selected_tract_str == "None" or not selected_tract_str:
+                logger.error("Invalid tract ID: None")
                 raise PreventUpdate
+                
+            # Find the exact tract
+            idx = gdf[gdf['id'].astype(str) == selected_tract_str].index
+            
+            if idx.empty:
+                logger.error(f"Tract {selected_tract_str} not found in {gpkg_path}")
+                logger.error(f"Available tract IDs: {gdf['id'].unique()[:10]}...")  # Show first 10
+                raise PreventUpdate
+                
+            if len(idx) > 1:
+                logger.warning(f"Multiple tracts found with ID {selected_tract_str}: {idx}")
+                # Take only the first one
+                idx = idx[:1]
 
+            logger.info(f"Updating tract {selected_tract_str} at index {idx[0]}")
+            logger.info(f"Input values received:")
+            logger.info(f"  commute_start (Commute_TripMiles_TripStart_avg): {commute_start}")
+            logger.info(f"  commute_end (Commute_TripMiles_TripEnd_avg): {commute_end}")
+            # Get the region for this tract
+            region = gdf.loc[idx[0], 'Region']
+            logger.info(f"Tract region: {region}")
+            
             # — your 24 field‐writes —
             gdf.loc[idx, 'DEMOGIDX_5']                      = demogidx_5
             gdf.loc[idx, 'PEOPCOLORPCT']                    = peopcolorpct
@@ -2473,14 +2623,148 @@ def manage_editable_and_predictions(
             gdf.loc[idx, 'WalkingTrips(End)']               = walking_end
             gdf.loc[idx, 'PublicTransitTrips(Start)']       = transit_start
             gdf.loc[idx, 'PublicTransitTrips(End)']         = transit_end
+            gdf.loc[idx, 'AvgCommuteMiles(Start)']          = avg_commute_start
+            gdf.loc[idx, 'AvgCommuteMiles(End)']            = avg_commute_end
+            gdf.loc[idx, 'BikingWalkingMiles(Start)']       = biking_walking_start
+            gdf.loc[idx, 'BikingWalkingMiles(End)']         = biking_walking_end
+            gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = commute_start
+            gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg']   = commute_end
+            gdf.loc[idx, 'AvgCommuteMiles(Start)']          = avg_commute_start
+            gdf.loc[idx, 'AvgCommuteMiles(End)']            = avg_commute_end
+            final_start = avg_commute_start if avg_commute_start is not None else commute_start
+            final_end = avg_commute_end if avg_commute_end is not None else commute_end
+            
+            # Update both versions with the final value
+            if final_start is not None:
+                gdf.loc[idx, 'Commute_TripMiles_TripStart_avg'] = final_start
+                gdf.loc[idx, 'AvgCommuteMiles(Start)'] = final_start
+            
+            if final_end is not None:
+                gdf.loc[idx, 'Commute_TripMiles_TripEnd_avg'] = final_end
+                gdf.loc[idx, 'AvgCommuteMiles(End)'] = final_end
+            
+            # Also write dot notation for MGWR
+            if model_file == "mgwr_predict.py":
+                if final_start is not None:
+                    gdf.loc[idx, 'AvgCommuteMiles.Start.'] = final_start
+                if final_end is not None:
+                    gdf.loc[idx, 'AvgCommuteMiles.End.'] = final_end
+                gdf.loc[idx, 'BikingWalkingMiles.Start.']   = biking_walking_start
+                gdf.loc[idx, 'BikingWalkingMiles.End.']     = biking_walking_end
+                gdf.loc[idx, 'AvgCommuteMiles.Start.'] = commute_start
+                gdf.loc[idx, 'AvgCommuteMiles.End.']   = commute_end
+            logger.info(f"Final commute values:")
+            logger.info(f"  Start: {final_start}")
+            logger.info(f"  End: {final_end}")
+            # CRITICAL: For MGWR retrain check if all required fields are filled
+            if method == "full_retrain" and model_file == "mgwr_predict.py":
+                # Map parentheses fields to dot fields for MGWR
+                field_mapping = {
+                    'BikingTrips(Start)': 'BikingTrips.Start.',
+                    'BikingTrips(End)': 'BikingTrips.End.',
+                    'CarpoolTrips(Start)': 'CarpoolTrips.Start.',
+                    'CarpoolTrips(End)': 'CarpoolTrips.End.',
+                    'CommercialFreightTrips(Start)': 'CommercialFreightTrips.Start.',
+                    'CommercialFreightTrips(End)': 'CommercialFreightTrips.End.',
+                    'WalkingTrips(Start)': 'WalkingTrips.Start.',
+                    'WalkingTrips(End)': 'WalkingTrips.End.',
+                    'PublicTransitTrips(Start)': 'PublicTransitTrips.Start.',
+                    'PublicTransitTrips(End)': 'PublicTransitTrips.End.',
+                    'BikingWalkingMiles(Start)': 'BikingWalkingMiles.Start.',
+                    'BikingWalkingMiles(End)': 'BikingWalkingMiles.End.',
+                    'AvgCommuteMiles(Start)': 'AvgCommuteMiles.Start.',
+                    'AvgCommuteMiles(End)': 'AvgCommuteMiles.End.'
+                }
 
+                # Get required fields for this region from REGION_FIELDS
+                required_fields = REGION_FIELDS.get(region, [])
+                logger.info(f"Required fields for region {region}: {required_fields}")
+                
+                # Check for missing values
+                missing_fields = []
+                for field in required_fields:
+                    # Check both the parentheses version and dot version
+                    paren_field = field.replace('.', '(').rstrip('.')
+                    if paren_field.endswith('(Start)') or paren_field.endswith('(End)'):
+                        paren_field = paren_field[:-1] + ')'
+                    
+                    value = gdf.loc[idx, field if field in gdf.columns else paren_field].iloc[0]
+                    if pd.isna(value) or value is None:
+                        missing_fields.append(field)
+                    else:
+                        logger.info(f"Field {field}: {value}")
+                
+                if missing_fields:
+                    logger.error(f"Missing required fields for MGWR retrain: {missing_fields}")
+                    logger.error("Cannot run retrain with missing fields. Please fill all required fields.")
+                    # You might want to show an error to the user here
+                    # For now, let's continue but log the issue
+
+            # Also ensure VRU_rate exists for the tract (needed as the dependent variable)
+            if 'VRU_rate' not in gdf.columns or pd.isna(gdf.loc[idx, 'VRU_rate'].iloc[0]):
+                logger.warning("VRU_rate is missing for this tract. Setting to 0.0 for retrain.")
+                gdf.loc[idx, 'VRU_rate'] = 0.0
+
+            if method == "full_retrain" and model_file == "mgwr_predict.py":
+                # Check both parentheses and dot notation
+                logger.info("Verifying all fields after writing:")
+                for field in REGION_FIELDS.get(region, []):
+                    if field in gdf.columns:
+                        val = gdf.loc[idx, field].iloc[0]
+                        logger.info(f"  {field}: {val}")
+                    else:
+                        # Also check dot notation
+                        dot_field = field.replace('(', '.').replace(')', '.')
+                        if dot_field in gdf.columns:
+                            val = gdf.loc[idx, dot_field].iloc[0]
+                            logger.info(f"  {dot_field}: {val}")
+                        else:
+                            logger.error(f"  {field}: NOT FOUND in columns!")
+            
+            # Also log the actual columns in the dataframe
+            logger.debug(f"Available columns containing 'Avg' or 'Commute': {[c for c in gdf.columns if 'Avg' in c or 'Commute' in c]}")
             # overwrite and re‐run
             gdf.to_file(gpkg_path, driver="GPKG")
+            logger.info(f"Saved updates to {gpkg_path}")
+            
             base, ext = os.path.splitext(gpkg_path)
-            suffix   = '_with_mgwr_predictions' if model_file=='mgwr_predict.py' else '_with_predictions'
+            if method == "approximation":
+                script_name = "mgwr_predict.py"
+            else:
+                script_name = "mgwr_retrain.py"
+                
+            suffix   = '_with_mgwr_predictions'
             out_file = f"{base}{suffix}{ext}"
-            subprocess.run([sys.executable, model_file, gpkg_path, out_file],
-                           check=True, capture_output=True, text=True)
+            
+            # Build the full path to the script
+            script_path = os.path.join(os.path.dirname(__file__), script_name)
+            
+            logger.info(f"Running {script_name} with args: {gpkg_path} {out_file}")
+            logger.info(f"Script path: {script_path}")
+            logger.info(f"Script exists: {os.path.exists(script_path)}")
+            
+            try:
+                result = subprocess.run(
+                    [sys.executable, script_path, gpkg_path, out_file],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,  # Capture stderr separately
+                    text=True,
+                    check=True,
+                    cwd=os.path.dirname(__file__)
+                )
+                logger.info("=== %s stdout ===\n%s", script_name, result.stdout)
+                if result.stderr:
+                    logger.warning("=== %s stderr ===\n%s", script_name, result.stderr)
+            except subprocess.CalledProcessError as e:
+                logger.error("Script failed (exit %s)", e.returncode)
+                logger.error("STDOUT:\n%s", e.stdout)
+                logger.error("STDERR:\n%s", e.stderr)
+                # Don't raise PreventUpdate - let's see what happens
+                # raise PreventUpdate
+            except Exception as e:
+                logger.error("Unexpected error running script: %s", str(e))
+                import traceback
+                traceback.print_exc()
 
             return dash.no_update, dash.no_update, (current_refresh or 0) + 1, dash.no_update
 
@@ -2522,15 +2806,16 @@ def manage_editable_and_predictions(
         Input("model_selector_tab4",       "value"),
         Input("selected_census_tract",     "data"),
         Input("editable_gpkg_path",        "data"),
+        Input("prediction_method",         "value"),  # Add this input
     ],
     prevent_initial_call=True,
 )
-def toggle_field_styles(model_file, selected_tract, gpkg_path):
+def toggle_field_styles(model_file, selected_tract, gpkg_path, prediction_method):
     # AI and GWR always show all fields (can add more here later)
     if model_file in ("AI.py", "AI2.py"):
         return [{'marginBottom': '10px'}] * len(ALL_FIELDS)
 
-    # MGWR hide everything until a tract is selected and GPkg exists
+    # MGWR - hide everything until a tract is selected and GPkg exists
     if not (selected_tract and gpkg_path and os.path.exists(gpkg_path)):
         return [{'display': 'none'}] * len(ALL_FIELDS)
 
@@ -2545,6 +2830,21 @@ def toggle_field_styles(model_file, selected_tract, gpkg_path):
     if match.empty:
         return [{'display': 'none'}] * len(ALL_FIELDS)
 
+    # Check if this tract has a prediction (for approximation mode check)
+    if prediction_method == "approximation":
+        # For approximation mode, check if tract has existing prediction
+        pred_col = "MGWR_Prediction" if model_file == "mgwr_predict.py" else "Prediction"
+        
+        if pred_col in gdf.columns:
+            tract_row = gdf[gdf['id'].astype(str) == tract_id]
+            if not tract_row.empty:
+                has_prediction = not pd.isna(tract_row.iloc[0][pred_col])
+                
+                # If no prediction exists (NaN), hide all controls in approximation mode
+                if not has_prediction:
+                    return [{'display': 'none'}] * len(ALL_FIELDS)
+
+    # If we get here, show controls based on region
     region = match.iat[0]
     allowed = set(REGION_FIELDS.get(region, []))
 
@@ -2556,7 +2856,7 @@ def toggle_field_styles(model_file, selected_tract, gpkg_path):
 
 
 
-# --- store_original_prediction ---
+# store_original_prediction 
 @app.callback(
     Output('original_prediction', 'data'),
     [
@@ -2584,16 +2884,30 @@ def store_original_prediction(tract_id, model_file, gpkg_path):
     if os.path.exists(county_pred):
         gdf = gpd.read_file(county_pred)
     else:
-        gdf = gpd.read_file(DEFAULT_PRED_FILES[model_file])
-    # if the prediction column itself is missing, bail out
+        gdf = gpd.read_file(DEFAULT_PRED_FILES.get(model_file, DEFAULT_PRED_FILES['mgwr_predict.py']))
+    
+    # if the prediction column itself is missing, return None (for NaN tracts)
     if col not in gdf.columns:
         return None
 
-    # in store_original_prediction
+    # Try to find the tract by id
     subset = gdf.loc[gdf['id'].astype(str) == str(tract_id), col]
     if subset.empty:
-        return None
-    return subset.iloc[0]
+        # Also try by GEOIDFQ if id lookup fails
+        if 'GEOIDFQ' in gdf.columns:
+            # First need to get GEOIDFQ from the editable file
+            editable_gdf = gpd.read_file(gpkg_path)
+            tract_match = editable_gdf[editable_gdf['id'].astype(str) == str(tract_id)]
+            if not tract_match.empty and 'GEOIDFQ' in tract_match.columns:
+                geoidfq = tract_match.iloc[0]['GEOIDFQ']
+                subset = gdf.loc[gdf['GEOIDFQ'] == geoidfq, col]
+    
+    if subset.empty:
+        return None  # This is OK for NaN tracts
+    
+    value = subset.iloc[0]
+    return value if not pd.isna(value) else None
+
 
 # Single callback to drive the prediction bar for both ForestISO and GWR
 @app.callback(
@@ -2601,14 +2915,15 @@ def store_original_prediction(tract_id, model_file, gpkg_path):
     [
         Input('original_prediction',    'data'),
         Input('predictions_refresh',    'data'),
-        Input('model_selector_tab4',    'value')
+        Input('model_selector_tab4',    'value'),
+        Input('prediction_method',      'value'),
     ],
     [
         State('editable_gpkg_path',     'data'),
         State('selected_census_tract',  'data')
     ]
 )
-def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_path, selected_tract):
+def update_prediction_bar(original_prediction, refresh_val, model_file, prediction_method, gpkg_path, selected_tract):
     # if nothing selected yet
     if not selected_tract or not gpkg_path:
         return "No census tract selected."
@@ -2624,33 +2939,56 @@ def update_prediction_bar(original_prediction, refresh_val, model_file, gpkg_pat
     base, ext = os.path.splitext(gpkg_path)
     county_pred_file = f"{base}{suffix}{ext}"
 
-    # load the correct GeoPackage
+    # Try to get current value
+    current_val = None
+    
+    # First try the county-specific prediction file
     if os.path.exists(county_pred_file):
-        gdf = gpd.read_file(county_pred_file)
-    else:
-        # fall back to the global default
-        gdf = gpd.read_file(DEFAULT_PRED_FILES[model_file])
+        try:
+            gdf = gpd.read_file(county_pred_file)
+            if col in gdf.columns:
+                # Try by id first
+                subset = gdf.loc[gdf['id'].astype(str) == str(selected_tract), col]
+                if not subset.empty:
+                    current_val = subset.iloc[0]
+        except Exception as e:
+            logger.debug(f"Error reading county prediction file: {e}")
+    
+    # If still no value, try the default file
+    if current_val is None:
+        try:
+            gdf = gpd.read_file(DEFAULT_PRED_FILES.get(model_file, DEFAULT_PRED_FILES['mgwr_predict.py']))
+            if col in gdf.columns:
+                subset = gdf.loc[gdf['id'].astype(str) == str(selected_tract), col]
+                if not subset.empty:
+                    current_val = subset.iloc[0]
+        except Exception as e:
+            logger.debug(f"Error reading default prediction file: {e}")
 
-    # if column missing
-    if col not in gdf.columns:
-        return f"Model '{model_file}' has no '{col}' column."
-
-    # grab the current value for this tract
-    try:
-        current_val = gdf.loc[gdf['id'] == selected_tract, col].iloc[0]
-    except Exception:
-        return "Selected tract not found."
+    # Check if this is a NaN tract
+    if current_val is None or pd.isna(current_val):
+        if prediction_method == "approximation":
+            return html.Div([
+                html.Div("⚠️ No existing prediction for this tract", style={'color': 'red', 'fontWeight': 'bold'}),
+                html.Div("Approximation mode requires an existing prediction.", style={'fontSize': '12px'}),
+                html.Div("Switch to 'Full Retrain' mode to generate predictions for new tracts.", style={'fontSize': '12px', 'fontStyle': 'italic'})
+            ])
+        else:
+            return html.Div([
+                html.Div("No existing prediction for this tract", style={'fontWeight': 'bold'}),
+                html.Div("Full retrain mode will generate a new prediction when you apply changes.", style={'fontSize': '12px'})
+            ])
 
     # helper for formatting
     def fmt(x):
         try:
-            return f"{float(x):.2f}"
+            return f"{float(x):.2f}" if x is not None else "N/A"
         except:
-            return str(x)
+            return str(x) if x is not None else "N/A"
 
     return html.Div([
         html.Div(f"Original VRU Crash Rate: {fmt(original_prediction)}"),
-        html.Div(f"Predicted VRU Crash Rate:  {fmt(current_val)}"),
+        html.Div(f"Predicted VRU Crash Rate: {fmt(current_val)}"),
     ])
 
 # ----------------------------

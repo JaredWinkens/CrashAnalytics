@@ -29,6 +29,6 @@ RUN ln -s /mnt/data/data /app/data && \
     ln -s /mnt/data/config.json /app/config.json
 
 
-EXPOSE 8050
+EXPOSE 8080
 
 CMD ["python", "app.py"]

@@ -3,20 +3,6 @@ import dash_bootstrap_components as dbc
 
 def load_chatbot_layout(initial_chat_history):
     return html.Div(className='app-container', children=[
-        # Header Section
-        # html.Div([
-        #     html.Div([
-        #         html.Img(src='/assets/Poly.svg', style={
-        #             'height': '128px', 'float': 'left', 'margin-right': '40px', 
-        #             'margin-left': '-20px', 'margin-top': '-8px'
-        #         }),
-        #         html.H1('Safety Chatbot', className='app-title'),
-        #         html.Img(src='/assets/NY.svg', className='ny-logo')
-        #     ],style={
-        #         'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
-        #         'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
-        #     }),
-        # ]),
         #Main centered content wrapper (for chat history)
         html.Div(className='main-content-wrapper', children=[
             # Chat history display area - ONLY THIS DIV SCROLLS

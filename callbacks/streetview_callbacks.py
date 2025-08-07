@@ -13,14 +13,17 @@ import plotly.express as px
     Output('image-popup-tab5', 'is_open'),
     Output('scatter_map_tab5', 'clickData'),
     Input('scatter_map_tab5', 'clickData'),
-    State('filtered_data_tab5', 'data'),     
+    State('filtered_data_tab5', 'data'),
+    State('data_type_selector_main_tab5', 'value'),     
     prevent_initial_call=True
 )
-def display_streetview_popup(clickData, filtered_data):
+def display_streetview_popup(clickData, filtered_data, main_data_type):
     triggered_id = ctx.triggered_id
     
     if triggered_id == 'scatter_map_tab5':
         
+        df = pd.DataFrame(filtered_data)
+        df_indexed = df.set_index('Case_Number')
         lon = clickData['points'][0]['lon']
         lat = clickData['points'][0]['lat']
         location_name = streetview.get_location_name(lat, lon)
@@ -31,15 +34,35 @@ def display_streetview_popup(clickData, filtered_data):
         data_uri = streetview.encode_image_to_base64_data_uri(image_bytes, format="png")
 
         caseNumber = clickData['points'][0]['customdata'][0]
-        crash = data_final_df.query(f"Case_Number == '{caseNumber}'")
+        crash = df_indexed.loc[caseNumber]
+        crash_string = crash.astype('string')
 
-        historical_data = streetview.get_historical_crash_data(77, lat, lon, pd.DataFrame(filtered_data))
+        if main_data_type == 'VRU':
+            all_crashes = df_indexed.query(f"Data_Type == '{main_data_type}'")
+        else:
+            all_crashes = df_indexed # Dont filter
+
+        historical_data = streetview.get_historical_crash_data(77, lat, lon, all_crashes)
         
-        analysis = streetview.analyze_image_ai(image_bytes, image_meta, crash.to_string(), historical_data.to_string())
+        analysis = streetview.analyze_image_ai(image_bytes, image_meta, crash_string, historical_data.to_string())
+
+        content = f"""
+        **Crash Details:**
+        Case Number: {caseNumber},
+        Date: {crash['Crash_Date']},
+        Time: {crash['Crash_Time']},
+        Road Surface Condition: {crash['RoadSurfac']},
+        Weather Condition: {crash['WeatherCon']},
+        Light Condition: {crash['LightCon']},
+        Category: {crash['Data_Type']},
+        Type: {crash['Crash_Type']},
+        Severity: {crash['SeverityCategory']}
+        """
 
         image_element = [
             dbc.ModalHeader(dbc.ModalTitle(location_name)),
             dbc.ModalBody(html.Div([
+                dcc.Markdown(content),
                 dcc.Markdown(analysis),
                 dash_pannellum.DashPannellum(
                     id='partial-panorama-component',
@@ -176,6 +199,7 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
         )
         fig.update_traces(marker=dict(opacity=0))
     else:
+        df_to_plot['Crash_Day'] = df_to_plot['Crash_Date'].dt.day_name()
         fig = px.scatter_map(
             df_to_plot,
             lat='Y_Coord', lon='X_Coord', zoom=10, map_style="open-street-map",
@@ -183,11 +207,11 @@ def map_tab5(apply_n_clicks, clear_n_clicks, counties_selected, selected_data,
             hover_data={
                 'Crash_Date': True, 'Crash_Time': True,
                 'WeatherCon': True, 'LightCon': True,
-                'RoadSurfac': True
+                'RoadSurfac': True, 'Data_Type': True, 'Crash_Day': True
             },
             custom_data=['Case_Number']
         )
         fig.update_layout(map_center={'lat': lat_center, 'lon': lon_center})
 
     fig.update_layout(uirevision=key)
-    return fig, out_selected, df_to_plot.to_dict()
+    return fig, out_selected, df.to_dict()

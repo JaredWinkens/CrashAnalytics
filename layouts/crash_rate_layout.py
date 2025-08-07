@@ -13,20 +13,6 @@ def load_crash_rate_layout(available_counties,
                            ):
     return html.Div(
                 children=[
-                    # Header Section
-                    # html.Div([
-                    #     html.Div([
-                    #         html.Img(src='/assets/Poly.svg', style={
-                    #             'height': '128px', 'float': 'left', 'margin-right': '40px', 
-                    #             'margin-left': '-20px', 'margin-top': '-8px'
-                    #         }),
-                    #         html.H1('Crash Rate', className='app-title'),
-                    #         html.Img(src='/assets/NY.svg', className='ny-logo')
-                    #     ],style={
-                    #         'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
-                    #         'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
-                    #     }),
-                    # ]),
                     html.Div(
                         children=[
                             html.Div([
@@ -97,13 +83,7 @@ def load_crash_rate_layout(available_counties,
                                     },
                                     config={'modeBarButtonsToRemove': ['lasso2d'], 'displayModeBar': True, 'scrollZoom': True}
                                 ),
-                                html.Div(id='crash-rate-content',children=[
-                                #     html.H1('Top 10 Segments', style={'margin-top': '10px'}),
-                                #     dash_table.DataTable(
-                                #         id='crash-rate-table',
-                                #         data=None,
-                                #         style_cell={'textAlign': 'left'},)
-                                ])
+                                html.Div(id='crash-rate-content',children=[])
                             ],className='responsive-graph'),
                         ],
                         className='desktop-layout'

@@ -22,10 +22,10 @@
 }
   /* Default styling for logos */
 .ny-logo {
-  float: right;
+  height: 100px;
 }
 .suny-logo {
-  float: left;
+  height: 100px;
 }
 .nav-link {
   color: white !important; /* Force the text color to be white */

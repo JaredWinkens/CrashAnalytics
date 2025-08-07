@@ -21,16 +21,16 @@ GEN_MODEL = config['models']['2.5-flash']
 client = genai.Client(api_key=API_KEY)
 ANALYZER_ROLE = """
 You are a traffic safety analyst. 
-
-Keep your analysis brief (aim for ~300 tokens).
-
 """
 class Insight(BaseModel):
-    analysis: str
+    historical_trends: str
+    environmental_influence: str
 
 def format_response(response: Insight) -> str:
     return f"""
-    **Analysis:** {response.analysis}
+    **Historical Trends (AI-driven):** {response.historical_trends}
+    
+    **Environmental Influence (AI-driven):** {response.environmental_influence}
     """
 
 def analyze_image_ai(image_bytes, image_metadata, crash_info, historical_data):
@@ -39,7 +39,7 @@ def analyze_image_ai(image_bytes, image_metadata, crash_info, historical_data):
             model=GEN_MODEL,
             config=types.GenerateContentConfig(
                 system_instruction=ANALYZER_ROLE,
-                temperature=0,
+                temperature=0.5,
                 response_mime_type="application/json",
                 response_schema=Insight,
             ),
@@ -54,14 +54,16 @@ def analyze_image_ai(image_bytes, image_metadata, crash_info, historical_data):
                 Note: The attached picture is not the actual picture of the crash scene.
 
                 I am providing you with the following information to aid your analysis:
-                1. The image metadata:
+                - The image metadata:
                 {image_metadata}
-                2. Details about the crash:
+                - Details about the crash:
                 {crash_info}
-                3. Details about crashes in the surrounding area (77 meter radius)
+                - Details about crashes in the surrounding area (77 meter radius):
                 {historical_data}
                 
-                Given all this information see if you can draw any insights into the influence that the surrounding infrastructure/environment had on the crash.
+                Given all this information do the following:
+                1. Explain any historical trends based on the crashes in the surrounding area (~100 tokens)
+                2. Speculate on how the surrounding environment/infrustructure influenced the crash (~100 tokens)
                 """
             ]
         )

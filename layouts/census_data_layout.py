@@ -2,20 +2,6 @@ from dash import dcc, html
 
 def load_census_data_layout(census_controls, county_coordinates, available_counties):
     return html.Div([
-        # Header Section
-        # html.Div([
-        #     html.Div([
-        #         html.Img(src='/assets/Poly.svg', style={
-        #             'height': '128px', 'float': 'left', 'margin-right': '40px', 
-        #             'margin-left': '-20px', 'margin-top': '-8px'
-        #         }),
-        #         html.H1('Census Data', className='app-title'),
-        #         html.Img(src='/assets/NY.svg', className='ny-logo')
-        #     ],style={
-        #         'backgroundColor': '#18468B', 'padding': '7.5px', 'position': 'fixed', 
-        #         'top': '50px', 'left': '0', 'width': '100%', 'zIndex': '999', 'height': '90px'
-        #     }),
-        # ]),
         html.Div([
             census_controls(),
             html.Div(id='warning_message_tab3', style={'color': 'red'})

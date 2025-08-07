@@ -518,14 +518,14 @@ app.title = 'Crash Data Analytics'
 server = app.server
 
 secret_key = base64.b64encode(os.urandom(30)).decode('utf-8')
-auth = dash_auth.BasicAuth(
-    app,
-    {
-        'winkenj': 'SunyPoly2025',
-        'karimpa': 'TrafficSafety2025'
-    },
-    secret_key=secret_key,
-)
+# auth = dash_auth.BasicAuth(
+#     app,
+#     {
+#         'winkenj': 'SunyPoly2025',
+#         'karimpa': 'TrafficSafety2025'
+#     },
+#     secret_key=secret_key,
+# )
 
 # Initialize caching
 cache = Cache(app.server, config={
